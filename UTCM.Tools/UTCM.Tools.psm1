@@ -1,4 +1,6 @@
-<# =====================================================================
+#requires -Version 7.0
+<#
+===============================================================================
     UTCM.Tools.psm1  (PowerShell 7+)
     Root module for the UTCM.Tools PowerShell module.
 
@@ -8,26 +10,30 @@
       • Reliably dot-source all Private\*.ps1 helpers (required)
       • Reliably dot-source all Public\*.ps1 functions (required)
       • Export ONLY the intended public functions
-      • Validate public functions using Option B (Retry Guard)
+      • Validate public functions using a safe Retry Guard (no autoload)
 
     Notes:
       • Keep Export-ModuleMember's function list in sync with Public\ files.
       • The loader throws clear errors if folders/files are missing.
-      • Tested with PowerShell 7+ and Pester 5+.
-===================================================================== #>
+      • Retry guard uses Function: drive to avoid command discovery/autoload.
+      • For import troubleshooting, set: $VerbosePreference='Continue' then Import-Module -Force
+===============================================================================
+#>
 
 Set-StrictMode -Version Latest
 
 # ---------------------------
 # Module-wide constants (UTCM Graph preview/beta)
 # ---------------------------
-$script:GraphBase       = "/beta/configuration"
+$script:GraphBase       = '/beta/configuration'
 $script:SnapshotJobsUri = "$script:GraphBase/snapshotJobs"
 
 # ---------------------------
-# Helper: Load .ps1 files from a folder (relative to $PSScriptRoot)
+# Helper: return .ps1 files from a folder (relative to $PSScriptRoot)
+#           NOTE: This function ONLY RETURNS FILES. It does NOT dot-source them.
+#           We dot-source at MODULE SCRIPT SCOPE (below), to keep definitions.
 # ---------------------------
-function _Load-ScriptsFromFolder {
+function _Get-ScriptsFromFolder {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FolderName,
@@ -35,40 +41,66 @@ function _Load-ScriptsFromFolder {
     )
 
     $dir = Join-Path -Path $PSScriptRoot -ChildPath $FolderName
+    Write-Verbose "Loading scripts from: $dir (Required=$($Required.IsPresent))"
 
     if (-not (Test-Path -LiteralPath $dir)) {
         if ($Required) {
             throw "Required folder not found: $dir"
         } else {
-            return
+            Write-Verbose "Folder not found (optional): $dir — skipping."
+            return @()
         }
     }
 
-    # Load only *.ps1 files; stop immediately on access/path errors
-    $files = Get-ChildItem -LiteralPath $dir -Filter *.ps1 -File -ErrorAction Stop
+    $files = Get-ChildItem -LiteralPath $dir -Filter *.ps1 -File -ErrorAction Stop | Sort-Object Name
     if (-not $files -and $Required) {
         throw "No scripts (*.ps1) found in required folder: $dir"
     }
 
-    foreach ($file in $files) {
-        . $file.FullName
+    return $files
+}
+
+# ---------------------------
+# Collect scripts
+# ---------------------------
+$privateFiles = _Get-ScriptsFromFolder -FolderName 'Private' -Required
+$publicFiles  = _Get-ScriptsFromFolder -FolderName 'Public'  -Required
+
+# ---------------------------
+# DOT-SOURCE FILES AT MODULE SCRIPT SCOPE (critical for persistence)
+# ---------------------------
+
+# Private helpers (may or may not declare functions)
+foreach ($file in $privateFiles) {
+    Write-Verbose "Dot-sourcing: $($file.FullName)"
+    $before = (Get-ChildItem Function:\).Name
+    . $file.FullName      # dot-source at module script scope
+    $after  = (Get-ChildItem Function:\).Name
+    $added  = Compare-Object $before $after -PassThru | Where-Object { $_ -like '*UTCM*' }
+    if ($added) {
+        Write-Verbose "Functions added by $($file.Name): $($added -join ', ')"
+    } else {
+        Write-Verbose "No UTCM functions detected from $($file.Name)"
+    }
+}
+
+# Public cmdlets (should declare functions)
+foreach ($file in $publicFiles) {
+    Write-Verbose "Dot-sourcing: $($file.FullName)"
+    $before = (Get-ChildItem Function:\).Name
+    . $file.FullName      # dot-source at module script scope
+    $after  = (Get-ChildItem Function:\).Name
+    $added  = Compare-Object $before $after -PassThru | Where-Object { $_ -like '*UTCM*' }
+    if ($added) {
+        Write-Verbose "Functions added by $($file.Name): $($added -join ', ')"
+    } else {
+        Write-Verbose "No UTCM functions detected from $($file.Name)"
     }
 }
 
 # ---------------------------
-# Load Private helpers first (required)
-# ---------------------------
-_Load-ScriptsFromFolder -FolderName 'Private' -Required
-
-# ---------------------------
-# Load Public cmdlets next (required)
-# ---------------------------
-_Load-ScriptsFromFolder -FolderName 'Public' -Required
-
-# ---------------------------
 # Export ONLY intended public functions
 # ---------------------------
-# Keep this list in sync with the public API surface of the module.
 $publicFunctions = @(
     'Get-UTCMAvailableSnapshot',
     'New-UTCMSnapshot',
@@ -80,18 +112,19 @@ $publicFunctions = @(
 )
 
 # ---------------------------
-# Option B: Retry Guard (validate functions after load, with brief retries)
+# Retry Guard (safe): validate functions after load with brief retries
+# Uses Function: drive to avoid command discovery or module autoload during import.
+# Tune via env vars; defaults are 3 tries and 80 ms delay
 # ---------------------------
-# Tune via environment variables; defaults are 3 tries and 80 ms delay
-# (PowerShell 7+ null-coalescing operator ?? is used here)
 $maxTries = [Environment]::GetEnvironmentVariable('UTCM_RETRY_TRIES')    ?? '3'
 $delayMs  = [Environment]::GetEnvironmentVariable('UTCM_RETRY_DELAY_MS') ?? '80'
 
-# Convert to int and enforce sane minimums
 try { $maxTries = [int]$maxTries } catch { $maxTries = 3 }
 try { $delayMs  = [int]$delayMs  } catch { $delayMs  = 80 }
 if ($maxTries -lt 1) { $maxTries = 1 }
 if ($delayMs  -lt 1) { $delayMs  = 1 }
+
+Write-Verbose "Validation retries: maxTries=$maxTries, delayMs=$delayMs"
 
 $export  = @()
 $missing = @()
@@ -99,17 +132,18 @@ $missing = @()
 foreach ($fn in $publicFunctions) {
     $ok = $false
     for ($i = 1; $i -le $maxTries; $i++) {
-        if (Get-Command -Name $fn -ErrorAction SilentlyContinue) {
+        if (Test-Path "Function:\$fn") {
             $ok = $true
             break
         }
-        Start-Sleep -Milliseconds $delayMs
+        if ($i -lt $maxTries) {
+            Start-Sleep -Milliseconds $delayMs
+        }
     }
 
     if ($ok) {
         $export += $fn
     } else {
-        # Collect missing names and fail once, below
         $missing += $fn
     }
 }
@@ -118,8 +152,11 @@ if ($missing.Count -gt 0) {
     $msg = @()
     $msg += "One or more public functions were not found after loading Public\*.ps1 and $maxTries validation attempts:"
     $msg += "  - " + ($missing -join "`n  - ")
-    $msg += "Check for file/function name mismatches, syntax errors, or missing files in the Public folder."
+    $msg += "Check for file/function name mismatches, scope issues (functions wrapped in invoked blocks),"
+    $msg += "or missing files in the Public folder."
     throw ($msg -join "`n")
 }
 
+# Final export
+Write-Verbose ("Export list: " + ($export -join ', '))
 Export-ModuleMember -Function $export
