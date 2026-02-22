@@ -112,6 +112,10 @@ UTCM.Tools
 ├── UTCM.Tools.psm1            # Root module (strict mode + loader + retry guard)
 │
 ├── Public                     # Exported cmdlets
+│   ├── Enable-UTCM.ps1
+│   ├── Grant-UTCMWorkloadAccess.ps1
+│   ├── Initialize-UTCM.ps1
+│   ├── Test-UTCMSetup.ps1
 │   ├── Get-UTCMAvailableSnapshot.ps1
 │   ├── New-UTCMSnapshot.ps1
 │   ├── Get-UTCMSnapshot.ps1
@@ -249,6 +253,73 @@ id     displayName              type                    normalizedData          
 ---
 
 ## Command Reference
+
+### `Enable-UTCM`
+Ensure the Microsoft‑owned **UTCM service principal** exists in your tenant (idempotent). Uses AppId `03b07b79-c5bc-4b5e-9bfa-13acf4a99998`. [1](https://learn.microsoft.com/en-us/graph/utcm-authentication-setup)
+
+**Usage**
+```powershell
+Enable-UTCM
+```
+
+### `Grant-UTCMWorkloadAccess`
+Grants the **UTCM service principal** read‑level access across selected workloads. Supported values: `Entra`, `Exchange`, `Intune`, `SecurityAndCompliance`, `Teams`.
+#### What it assigns ####
+
+**Entra** → `Policy.Read.All`, `Directory.Read.All` (Graph app roles). [learn.microsoft.com]
+**Exchange** → `Exchange.ManageAsApp` (EXO app permission). ([\[learn.microsoft.com\]](https://learn.microsoft.com/en-us/powershell/exchange/app-only-auth-powershell-v2?view=exchange-ps)), [learn.microsoft.com]
+**Intune** → `DeviceManagementConfiguration.Read.All` (Graph app role). [learn.microsoft.com]
+**Security & Compliance** → `Exchange.ManageAsApp` + adds Security Reader directory role to the SP. [learn.microsoft.com]
+**Teams** → `TeamSettings.Read.All` (Graph app role, where app‑only supported). [learn.microsoft.com], [graphpermi...merill.net]
+
+**Usage**
+  **All workloads**
+  ```powershell
+  Grant-UTCMWorkloadAccess -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
+  ```
+  **Subset**
+  ```powershell
+  Grant-UTCMWorkloadAccess -Workloads Entra,Exchange
+  ```
+
+### `Initialize-UTCM`
+One‑shot wrapper that runs `Enable‑UTCM` and `Grant‑UTCMWorkloadAccess`.
+
+**Usage**
+```powershell
+Initialize-UTCM -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
+```
+
+### `Test-UTCMSetup`
+Report and validate the **UTCM service principal** configuration: shows app‑role assignments (resource → role value) and directory roles (e.g., **Security Reader** for S&C). Helpful for CI and post‑bootstrap verification. (Reads Microsoft Graph directory and SP metadata.)
+
+**Usage**
+```powershell
+# After Initialize-UTCM or Enable-UTCM/Grant-UTCMWorkloadAccess
+$check = Test-UTCMSetup
+$check | Format-List
+
+# Example output:
+# UtcmsSpDisplayName : Unified Tenant Configuration Management
+# ObjectId           : 00000000-1111-2222-3333-444444444444
+# AppRoleAssignments : { Microsoft Graph :: Policy.Read.All,
+#                        Microsoft Graph :: Directory.Read.All,
+#                        Office 365 Exchange Online :: Exchange.ManageAsApp,
+#                        Microsoft Graph :: DeviceManagementConfiguration.Read.All,
+#                        Microsoft Graph :: TeamSettings.Read.All }
+# DirectoryRoles     : Security Reader
+```
+
+**CI-friendly guard**
+```powershell
+$report = Test-UTCMSetup
+if (-not $report) { throw "UTCM SP not found." }
+
+if (-not ($report.AppRoleAssignments -match 'Policy.Read.All')) { throw "Missing Entra read role." }
+if (-not ($report.AppRoleAssignments -match 'Exchange.ManageAsApp')) { throw "Missing EXO app-only permission." }
+if (-not ($report.AppRoleAssignments -match 'DeviceManagementConfiguration.Read.All')) { Write-Warning "Intune read role not found." }
+if (-not ($report.DirectoryRoles -match 'Security Reader')) { Write-Warning "Security Reader not found (S&C read may be limited)." }
+```
 
 ### `Get-UTCMAvailableSnapshot`
 List all available UTCM snapshots.
