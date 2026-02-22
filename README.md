@@ -262,15 +262,17 @@ Ensure the Microsoft‑owned **UTCM service principal** exists in your tenant (i
 Enable-UTCM
 ```
 
+---
+
 ### `Grant-UTCMWorkloadAccess`
 Grants the **UTCM service principal** read‑level access across selected workloads. Supported values: `Entra`, `Exchange`, `Intune`, `SecurityAndCompliance`, `Teams`.
-#### What it assigns ####
+**What it assigns**
 
-**Entra** → `Policy.Read.All`, `Directory.Read.All` (Graph app roles). [learn.microsoft.com]
-**Exchange** → `Exchange.ManageAsApp` (EXO app permission). ([\[learn.microsoft.com\]](https://learn.microsoft.com/en-us/powershell/exchange/app-only-auth-powershell-v2?view=exchange-ps)), [learn.microsoft.com]
-**Intune** → `DeviceManagementConfiguration.Read.All` (Graph app role). [learn.microsoft.com]
-**Security & Compliance** → `Exchange.ManageAsApp` + adds Security Reader directory role to the SP. [learn.microsoft.com]
-**Teams** → `TeamSettings.Read.All` (Graph app role, where app‑only supported). [learn.microsoft.com], [graphpermi...merill.net]
+  **Entra** → `Policy.Read.All`, `Directory.Read.All` (Graph app roles).
+  **Exchange** → `Exchange.ManageAsApp` (EXO app permission). 
+  **Intune** → `DeviceManagementConfiguration.Read.All` (Graph app role). 
+  **Security & Compliance** → `Exchange.ManageAsApp` + adds Security Reader directory role to the SP. 
+  **Teams** → `TeamSettings.Read.All` (Graph app role, where app‑only supported). 
 
 **Usage**
   **All workloads**
@@ -282,6 +284,8 @@ Grants the **UTCM service principal** read‑level access across selected worklo
   Grant-UTCMWorkloadAccess -Workloads Entra,Exchange
   ```
 
+---
+
 ### `Initialize-UTCM`
 One‑shot wrapper that runs `Enable‑UTCM` and `Grant‑UTCMWorkloadAccess`.
 
@@ -289,6 +293,8 @@ One‑shot wrapper that runs `Enable‑UTCM` and `Grant‑UTCMWorkloadAccess`.
 ```powershell
 Initialize-UTCM -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
 ```
+
+---
 
 ### `Test-UTCMSetup`
 Report and validate the **UTCM service principal** configuration: shows app‑role assignments (resource → role value) and directory roles (e.g., **Security Reader** for S&C). Helpful for CI and post‑bootstrap verification. (Reads Microsoft Graph directory and SP metadata.)
@@ -320,6 +326,8 @@ if (-not ($report.AppRoleAssignments -match 'Exchange.ManageAsApp')) { throw "Mi
 if (-not ($report.AppRoleAssignments -match 'DeviceManagementConfiguration.Read.All')) { Write-Warning "Intune read role not found." }
 if (-not ($report.DirectoryRoles -match 'Security Reader')) { Write-Warning "Security Reader not found (S&C read may be limited)." }
 ```
+
+---
 
 ### `Get-UTCMAvailableSnapshot`
 List all available UTCM snapshots.
