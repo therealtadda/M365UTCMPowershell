@@ -113,8 +113,8 @@ Grant-UTCMWorkloadAccess -Workloads Entra,Exchange,Intune -Verbose
         )
         'SecurityAndCompliance' = @(
             @{ ResourceAppId = $exoAppId;   RoleValue = 'Exchange.ManageAsApp' }, # S&C guidance         [6](https://learn.microsoft.com/en-us/graph/utcm-securityandcompliance-resources)
-            @{ ResourceAppId = $graphAppId; RoleValue = 'InformationProtectionConfig.Read.All'},
-            @{ ResourceAppId = $graphAppId; RoleValue = 'Directory.Read.All'}
+            @{ ResourceAppId = $graphAppId; RoleValue = 'InformationProtectionConfig.Read.All'}, # Should be adequate for Purview; will validate and dig deeper and cite references
+            @{ ResourceAppId = $graphAppId; RoleValue = 'Directory.Read.All'} # Should be all that Defender really needs, need to find citation on this
         )
         'Teams' = @(
             @{ ResourceAppId = $graphAppId; RoleValue = 'Organization.Read.All' }                      # Teams settings     [7](https://graphpermissions.merill.net/permission/TeamSettings.Read.All)[8](https://learn.microsoft.com/en-us/graph/api/teamsappsettings-get?view=graph-rest-1.0)
