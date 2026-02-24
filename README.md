@@ -267,15 +267,16 @@ Enable-UTCM
 ### `Grant-UTCMWorkloadAccess`
 Grants the **UTCM service principal** read‑level access across selected workloads. Supported values: `Entra`, `Exchange`, `Intune`, `SecurityAndCompliance`, `Teams`.
 
-🔴  I think this is incorrect for the Exchange Online and Purview bits and I am digging into the docs to fix this; this document and the module will be updated when the right permissions are sorted.
+> ⚠️ This is murky as all get out, and there are likely multiple ways to do this, but we're trying for least priv here.
+> Suggestions on making this better are eminently welcome
 
 **What it assigns**
 
   **Entra** → `Policy.Read.All`, `Directory.Read.All` (Graph app roles).
   **Exchange** → `Exchange.ManageAsApp` (EXO app permission). 
   **Intune** → `DeviceManagementConfiguration.Read.All` (Graph app role). 
-  **Security & Compliance** → `Exchange.ManageAsApp` + adds Security Reader directory role to the SP. 
-  **Teams** → `TeamSettings.Read.All` (Graph app role, where app‑only supported). 
+  **Security & Compliance** → `Exchange.ManageAsApp` (EXO app permission), `InformationProtectionConfig.Read.All`, `Directory.Read.All` 
+  **Teams** → `Organization.Read.All` (Graph app role, where app‑only supported). 
 
 **Usage**
   **All workloads**

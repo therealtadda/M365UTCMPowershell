@@ -9,8 +9,8 @@ Assigns minimum Graph/EXO app roles and (where needed) directory role membership
 - Entra: Graph app roles `Policy.Read.All` + `Directory.Read.All` (Conditional Access & directory reads).  # [2](https://learn.microsoft.com/en-us/graph/api/conditionalaccesspolicy-get?view=graph-rest-1.0)
 - Exchange: EXO application permission **Exchange.ManageAsApp** (app-only EXO access).                   # [3](https://learn.microsoft.com/en-us/powershell/exchange/app-only-auth-powershell-v2?view=exchange-ps)[4](https://learn.microsoft.com/en-us/services-hub/unified/health/getting-started-office365exchange/app-auth)
 - Intune: Graph app role `DeviceManagementConfiguration.Read.All` (device config & compliance).          # [5](https://learn.microsoft.com/en-us/graph/api/intune-deviceconfigv2-devicemanagementconfigurationpolicy-list?view=graph-rest-beta)
-- SecurityAndCompliance (Purview): EXO ManageAsApp + Entra **Security Reader** directory role.          # [6](https://learn.microsoft.com/en-us/graph/utcm-securityandcompliance-resources)
-- Teams: Graph app role `TeamSettings.Read.All` (where app-only is supported).                           # [8](https://learn.microsoft.com/en-us/graph/api/teamsappsettings-get?view=graph-rest-1.0)[7](https://graphpermissions.merill.net/permission/TeamSettings.Read.All)
+- SecurityAndCompliance (Purview and Defender): EXO application permission Exchange.ManageAsApp + Graph App Roles `informationProtectionConfig.Read.All` + `Directory.Read.All`         # [6](https://learn.microsoft.com/en-us/graph/utcm-securityandcompliance-resources)
+- Teams: Graph app role `TeamSettings.Read.All`                            # [8](https://learn.microsoft.com/en-us/graph/api/teamsappsettings-get?view=graph-rest-1.0)[7](https://graphpermissions.merill.net/permission/TeamSettings.Read.All)
 
 .PARAMETER Workloads
 One or more of: Entra, Exchange, Intune, SecurityAndCompliance, Teams. Defaults to all.
@@ -108,13 +108,16 @@ Grant-UTCMWorkloadAccess -Workloads Entra,Exchange,Intune -Verbose
             @{ ResourceAppId = $exoAppId;   RoleValue = 'Exchange.ManageAsApp' } # EXO app-only        [3](https://learn.microsoft.com/en-us/powershell/exchange/app-only-auth-powershell-v2?view=exchange-ps)[4](https://learn.microsoft.com/en-us/services-hub/unified/health/getting-started-office365exchange/app-auth)
         )
         'Intune' = @(
-            @{ ResourceAppId = $graphAppId; RoleValue = 'DeviceManagementConfiguration.Read.All' }     # Intune read        [5](https://learn.microsoft.com/en-us/graph/api/intune-deviceconfigv2-devicemanagementconfigurationpolicy-list?view=graph-rest-beta)
+            @{ ResourceAppId = $graphAppId; RoleValue = 'DeviceManagementConfiguration.Read.All' },     # Intune read        [5](https://learn.microsoft.com/en-us/graph/api/intune-deviceconfigv2-devicemanagementconfigurationpolicy-list?view=graph-rest-beta)
+            @{ ResourceAppId = $graphAppId; RoleValue = 'DeviceManagementRBAC.Read.All'}
         )
         'SecurityAndCompliance' = @(
-            @{ ResourceAppId = $exoAppId;   RoleValue = 'Exchange.ManageAsApp' } # S&C guidance         [6](https://learn.microsoft.com/en-us/graph/utcm-securityandcompliance-resources)
+            @{ ResourceAppId = $exoAppId;   RoleValue = 'Exchange.ManageAsApp' }, # S&C guidance         [6](https://learn.microsoft.com/en-us/graph/utcm-securityandcompliance-resources)
+            @{ ResourceAppId = $graphAppId; RoleValue = 'InformationProtectionConfig.Read.All'},
+            @{ ResourceAppId = $graphAppId; RoleValue = 'Directory.Read.All'}
         )
         'Teams' = @(
-            @{ ResourceAppId = $graphAppId; RoleValue = 'TeamSettings.Read.All' }                      # Teams settings     [7](https://graphpermissions.merill.net/permission/TeamSettings.Read.All)[8](https://learn.microsoft.com/en-us/graph/api/teamsappsettings-get?view=graph-rest-1.0)
+            @{ ResourceAppId = $graphAppId; RoleValue = 'Organization.Read.All' }                      # Teams settings     [7](https://graphpermissions.merill.net/permission/TeamSettings.Read.All)[8](https://learn.microsoft.com/en-us/graph/api/teamsappsettings-get?view=graph-rest-1.0)
         )
     }
 
