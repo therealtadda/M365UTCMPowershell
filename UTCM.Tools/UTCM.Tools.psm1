@@ -102,6 +102,10 @@ foreach ($file in $publicFiles) {
 # Export ONLY intended public functions
 # ---------------------------
 $publicFunctions = @(
+    'Enable-UTCM.ps1',
+    'Grant-UTCMWorkloadAccess.ps1',
+    'Initialize-UTCM.ps1',
+    'Test-UTCMSetup.ps1'
     'Get-UTCMAvailableSnapshot',
     'New-UTCMSnapshot',
     'Get-UTCMSnapshot',
