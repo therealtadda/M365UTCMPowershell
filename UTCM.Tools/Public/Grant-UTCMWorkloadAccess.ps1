@@ -127,10 +127,6 @@ Grant-UTCMWorkloadAccess -Workloads Entra,Exchange,Intune -Verbose
             foreach ($grant in $map[$wl]) {
                 _Grant-AppRole -PrincipalObjectId $utcm.Id -ResourceAppId $grant.ResourceAppId -RoleValue $grant.RoleValue
             }
-
-            if ($wl -eq 'SecurityAndCompliance') {
-                _Ensure-DirectoryRoleMember -PrincipalObjectId $utcm.Id -RoleDisplayName 'Security Reader'  # least-priv read  [6](https://learn.microsoft.com/en-us/graph/utcm-securityandcompliance-resources)
-            }
         }
 
         Write-Log -Color Green -Message ("UTCM workload access granted for: " + ($Workloads -join ', '))

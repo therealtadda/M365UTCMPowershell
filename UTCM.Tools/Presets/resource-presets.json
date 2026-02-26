@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "presets": {
+    "ExchangeCore": [
+      "microsoft.exchange.sharedmailbox",
+      "microsoft.exchange.transportrule"
+    ],
+    "EntraCore": [
+      "microsoft.entra.securitydefaults",
+      "microsoft.entra.namedlocationpolicy",
+      "microsoft.entra.authorizationpolicy",
+      "microsoft.entra.tenantdetails",
+      "microsoft.entra.conditionalaccesspolicy"
+    ],
+    "TeamsCore": [
+      "microsoft.teams.meetingpolicy",
+      "microsoft.teams.messagingpolicy",
+      "microsoft.teams.appsetuppolicy"
+    ],
+    "IntuneCore": [
+      "microsoft.intune.devicecategory",
+      "microsoft.intune.policysets"
+    ],
+    "SecCompCore": [
+      "microsoft.securityandcompliance.labelpolicy",
+      "microsoft.securityandcompliance.dlpcompliancepolicy",
+      "microsoft.securityandcompliance.protectionalert"
+    ],
+    "TenantCore": [
+      "microsoft.entra.securitydefaults",
+      "microsoft.entra.namedlocationpolicy",
+      "microsoft.entra.authorizationpolicy",
+      "microsoft.entra.tenantdetails",
+      "microsoft.entra.conditionalaccesspolicy",
+
+      "microsoft.exchange.sharedmailbox",
+      "microsoft.exchange.transportrule",
+
+      "microsoft.teams.meetingpolicy",
+      "microsoft.teams.messagingpolicy",
+      "microsoft.teams.appsetuppolicy",
+
+      "microsoft.intune.devicecategory",
+      "microsoft.intune.policysets",
+
+      "microsoft.securityandcompliance.labelpolicy",
+      "microsoft.securityandcompliance.dlpcompliancepolicy",
+      "microsoft.securityandcompliance.protectionalert"
+    ],
+    "TeamsCore+Voice": [
+      "microsoft.teams.meetingpolicy",
+      "microsoft.teams.messagingpolicy",
+      "microsoft.teams.appsetuppolicy",
+      "microsoft.teams.voiceroute",
+      "microsoft.teams.voiceroutingpolicy",
+      "microsoft.teams.tenantdialplan",
+      "microsoft.teams.pstnusage",
+      "microsoft.teams.onlinevoiceuser",
+      "microsoft.teams.translationrule",
+      "microsoft.teams.callqueue",
+      "microsoft.teams.tenantnetworkregion",
+      "microsoft.teams.tenantnetworksite",
+      "microsoft.teams.tenantnetworksubnet"
+    ],
+    "IntuneCore+Roles": [
+      "microsoft.intune.devicecategory",
+      "microsoft.intune.policysets",
+      "microsoft.intune.roleassignment",
+      "microsoft.intune.roledefinition"
+    ],
+    "SecurityCore": [
+      "microsoft.entra.securitydefaults",
+      "microsoft.entra.namedlocationpolicy",
+      "microsoft.entra.conditionalaccesspolicy",
+      "microsoft.securityandcompliance.labelpolicy",
+      "microsoft.securityandcompliance.dlpcompliancepolicy",
+      "microsoft.securityandcompliance.protectionalert"
+    ]
+  }
+}

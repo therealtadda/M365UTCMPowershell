@@ -1,40 +1,44 @@
 function Get-UTCMTenantDriftReport {
     [CmdletBinding()]
     param(
-        [switch]$CreateSnapshot,
+        [switch] $CreateSnapshot,
 
         # Optional SnapshotId: validate only when supplied (allow null for interactive selection)
         [ValidateScript({
             if ($_ -and -not (Validate-Guid $_)) { throw "SnapshotId '$_' is not a valid GUID." }
             $true
         })]
-        [string]$SnapshotId,
+        [string] $SnapshotId,
 
-        [switch]$CompareToCurrent,
-        [switch]$ExportJson,
-        [switch]$Dashboard,
-        [switch]$ListSnapshots,
-        [switch]$NoPrompt,
+        [switch] $CompareToCurrent,
+        [switch] $ExportJson,
+        [switch] $Dashboard,
+        [switch] $ListSnapshots,
+        [switch] $NoPrompt,
 
         [ValidateNotNullOrEmpty()]
-        [string]$OutputPath = ".\",
+        [string] $OutputPath = ".\",
 
         [ValidateRange(5,300)]
-        [int]$PollingIntervalSeconds = 10,
+        [int] $PollingIntervalSeconds = 10,
 
-        [string[]]$GraphScopes = @('ConfigurationMonitoring.ReadWrite.All')
+        [string[]] $GraphScopes = @('ConfigurationMonitoring.ReadWrite.All')
     )
 
-    # Ensure Graph session
-    Ensure-GraphConnection -Scopes $GraphScopes
-
-    if ($ListSnapshots) {
-        return Get-UTCMAvailableSnapshot
+    # Ensure Graph session (scope list is passed through for consistency with your module)
+    if (Get-Command -Name Ensure-GraphConnection -ErrorAction SilentlyContinue) {
+        Ensure-GraphConnection -Scopes $GraphScopes
     }
 
-    # No SnapshotId provided and no CreateSnapshot => interactive selection unless -NoPrompt
+    # Quick list mode: leverage the improved listing cmdlet
+    if ($ListSnapshots) {
+        # Show newest, completed, downloadable jobs for practical use
+        return Get-UTCMAvailableSnapshot -OnlyCompleted -DownloadableOnly
+    }
+
+    # If no SnapshotId and no CreateSnapshot => optionally prompt to select one (unless -NoPrompt)
     if (-not $SnapshotId -and -not $CreateSnapshot) {
-        $snapshots = Get-UTCMAvailableSnapshot
+        $snapshots = Get-UTCMAvailableSnapshot -OnlyCompleted -DownloadableOnly
         if (-not $snapshots -or $snapshots.Count -eq 0) {
             throw "No snapshots exist. Use -CreateSnapshot to generate a new baseline."
         }
@@ -43,9 +47,10 @@ function Get-UTCMTenantDriftReport {
             throw "No SnapshotId provided and -NoPrompt is set. Provide -SnapshotId or use -CreateSnapshot."
         }
 
-        Write-Host "`nAvailable Snapshots:`n" -ForegroundColor Cyan
+        Write-Host "`nAvailable Snapshots (Completed & Downloadable):`n" -ForegroundColor Cyan
         $i = 1
         foreach ($s in $snapshots) {
+            # default projection has id, displayName, createdDateTime, status
             Write-Host ("[{0}]  {1}  ({2})  Created: {3}  Status: {4}" -f $i, $s.displayName, $s.id, $s.createdDateTime, $s.status)
             $i++
         }
@@ -58,32 +63,62 @@ function Get-UTCMTenantDriftReport {
         $SnapshotId = $snapshots[$selection - 1].id
     }
 
+    # Create a fresh snapshot (uses module defaults, e.g., 'TenantCore' preset).
     if ($CreateSnapshot) {
-        $SnapshotId = New-UTCMSnapshot -PollingIntervalSeconds $PollingIntervalSeconds
+        # New-UTCMSnapshot returns the final job object (status + resourceLocation).
+        $job = New-UTCMSnapshot -PollingIntervalSeconds $PollingIntervalSeconds
+        if ($job.status -notin @('succeeded','partiallySuccessful')) {
+            $errors = $null
+            if ($job.PSObject.Properties.Name -contains 'errorDetails') {
+                $errors = $job.errorDetails -join '; '
+            }
+            throw ("Snapshot creation did not complete successfully. Status: {0}. {1}" -f $job.status, ($errors ?? ''))
+        }
+        $SnapshotId = $job.id
     }
 
-    # Fetch baseline snapshot
+    # Fetch baseline snapshot metadata (concise by default)
     $baseline = Get-UTCMSnapshot -SnapshotId $SnapshotId
 
-    # Export baseline if requested
+    # Export baseline if requested (downloads from resourceLocation under the hood)
     if ($ExportJson) {
+        if (-not (Get-Command -Name Resolve-OutputPath -ErrorAction SilentlyContinue)) {
+            throw "Resolve-OutputPath utility is not available. Ensure your Private helpers are loaded."
+        }
         $resolvedPath = Resolve-OutputPath -Path $OutputPath
-        $jsonPath = Join-Path -Path $resolvedPath -ChildPath ("Snapshot-{0}.json" -f $SnapshotId)
-        Export-UTCMSnapshot -Snapshot $baseline -Path $jsonPath | Out-Null
+        $jsonPath     = Join-Path -Path $resolvedPath -ChildPath ("Snapshot-{0}.json" -f $SnapshotId)
+        Export-UTCMSnapshot -Snapshot $baseline -Path $jsonPath -Overwrite | Out-Null
     }
 
-    # Compare against current (optional)
+    # Optionally compare against the current state
     $diff = $null
     if ($CompareToCurrent) {
+        # This helper is assumed to create a 'current' snapshot and return the job object
+        if (-not (Get-Command -Name Get-UTCMCurrentStateSnapshot -ErrorAction SilentlyContinue)) {
+            throw "Get-UTCMCurrentStateSnapshot is not available in this module."
+        }
+
         $current = Get-UTCMCurrentStateSnapshot -PollingIntervalSeconds $PollingIntervalSeconds
 
-        # Reuse compare function (this re-fetches by ID; simple and explicit)
+        if (-not (Get-Command -Name Compare-UTCMConfiguration -ErrorAction SilentlyContinue)) {
+            throw "Compare-UTCMConfiguration is not available in this module."
+        }
+
+        # Compare by snapshot Ids for clarity (re-fetch or use ids directly, your compare cmdlet handles it)
         $diff = Compare-UTCMConfiguration -BaselineSnapshotId $SnapshotId -CompareSnapshotId $current.id
     }
 
-    # Dashboard (optional)
+    # Optional dashboard (render only if we have a diff)
     if ($Dashboard -and $diff) {
+        if (-not (Get-Command -Name Resolve-OutputPath -ErrorAction SilentlyContinue)) {
+            throw "Resolve-OutputPath utility is not available. Ensure your Private helpers are loaded."
+        }
         $resolved = Resolve-OutputPath -Path $OutputPath
+
+        if (-not (Get-Command -Name New-UTCMDriftReport -ErrorAction SilentlyContinue)) {
+            throw "New-UTCMDriftReport is not available in this module."
+        }
+
         New-UTCMDriftReport -Diff $diff -SnapshotId $SnapshotId -OutputPath $resolved | Out-Null
     }
 

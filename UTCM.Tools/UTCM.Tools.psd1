@@ -1,6 +1,6 @@
 @{
     RootModule        = 'UTCM.Tools.psm1'
-    ModuleVersion     = '1.1.1'
+    ModuleVersion     = '1.1.2'
     GUID              = 'c8b6d337-2a88-4f7b-b7c0-3e5d21df310a'
     Author            = 'Tadd Axon (pragmaticscripts@tadda.ltd)'
     CompanyName       = 'tadda.org'
@@ -11,10 +11,10 @@
 
     # Public functions to export:
     FunctionsToExport = @(
-        'Enable-UTCM.ps1',
-        'Grant-UTCMWorkloadAccess.ps1',
-        'Initialize-UTCM.ps1',
-        'Test-UTCMSetup.ps1'
+        'Enable-UTCM',
+        'Grant-UTCMWorkloadAccess',
+        'Initialize-UTCM',
+        'Test-UTCMSetup'
         'Get-UTCMAvailableSnapshot',
         'New-UTCMSnapshot',
         'Get-UTCMSnapshot',
