@@ -10,7 +10,7 @@ Assigns minimum Graph/EXO app roles and (where needed) directory role membership
 - Exchange: EXO application permission **Exchange.ManageAsApp** (app-only EXO access).                   # [3](https://learn.microsoft.com/en-us/powershell/exchange/app-only-auth-powershell-v2?view=exchange-ps)[4](https://learn.microsoft.com/en-us/services-hub/unified/health/getting-started-office365exchange/app-auth)
 - Intune: Graph app role `DeviceManagementConfiguration.Read.All` (device config & compliance).          # [5](https://learn.microsoft.com/en-us/graph/api/intune-deviceconfigv2-devicemanagementconfigurationpolicy-list?view=graph-rest-beta)
 - SecurityAndCompliance (Purview and Defender): EXO application permission Exchange.ManageAsApp + Graph App Roles `informationProtectionConfig.Read.All` + `Directory.Read.All`         # [6](https://learn.microsoft.com/en-us/graph/utcm-securityandcompliance-resources)
-- Teams: Graph app role `TeamSettings.Read.All`                            # [8](https://learn.microsoft.com/en-us/graph/api/teamsappsettings-get?view=graph-rest-1.0)[7](https://graphpermissions.merill.net/permission/TeamSettings.Read.All)
+- Teams: Graph app roles `Organization.Read.All` + `TeamSettings.Read.All`   # [7](https://graphpermissions.merill.net/permission/TeamSettings.Read.All)[8](https://learn.microsoft.com/en-us/graph/api/teamsappsettings-get?view=graph-rest-1.0)
 
 .PARAMETER Workloads
 One or more of: Entra, Exchange, Intune, SecurityAndCompliance, Teams. Defaults to all.
@@ -117,7 +117,8 @@ Grant-UTCMWorkloadAccess -Workloads Entra,Exchange,Intune -Verbose
             @{ ResourceAppId = $graphAppId; RoleValue = 'Directory.Read.All'} # Should be all that Defender really needs, need to find citation on this
         )
         'Teams' = @(
-            @{ ResourceAppId = $graphAppId; RoleValue = 'Organization.Read.All' }                      # Teams settings     [7](https://graphpermissions.merill.net/permission/TeamSettings.Read.All)[8](https://learn.microsoft.com/en-us/graph/api/teamsappsettings-get?view=graph-rest-1.0)
+            @{ ResourceAppId = $graphAppId; RoleValue = 'Organization.Read.All' },                     # org-level settings
+            @{ ResourceAppId = $graphAppId; RoleValue = 'TeamSettings.Read.All' }                     # Teams admin settings [7][8]
         )
     }
 

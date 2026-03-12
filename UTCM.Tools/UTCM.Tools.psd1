@@ -14,14 +14,15 @@
         'Enable-UTCM',
         'Grant-UTCMWorkloadAccess',
         'Initialize-UTCM',
-        'Test-UTCMSetup'
+        'Test-UTCMSetup',
         'Get-UTCMAvailableSnapshot',
         'New-UTCMSnapshot',
         'Get-UTCMSnapshot',
         'Compare-UTCMConfiguration',
         'Export-UTCMSnapshot',
         'New-UTCMDriftReport',
-        'Get-UTCMTenantDriftReport'
+        'Get-UTCMTenantDriftReport',
+        'Get-UTCMPreset'
     )
 
     PrivateData = @{

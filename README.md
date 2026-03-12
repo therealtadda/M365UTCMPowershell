@@ -119,6 +119,7 @@ UTCM.Tools
 │   ├── Get-UTCMAvailableSnapshot.ps1
 │   ├── New-UTCMSnapshot.ps1
 │   ├── Get-UTCMSnapshot.ps1
+│   ├── Get-UTCMPreset.ps1
 │   ├── Compare-UTCMConfiguration.ps1
 │   ├── Export-UTCMSnapshot.ps1
 │   ├── New-UTCMDriftReport.ps1
@@ -129,10 +130,15 @@ UTCM.Tools
 │   ├── Invoke-GraphRequestWithRetry.ps1
 │   ├── Get-UTCMCurrentStateSnapshot.ps1
 │   ├── ConvertTo-NormalizedJson.ps1
+│   ├── Presets.ps1
 │   ├── Resolve-OutputPath.ps1
 │   ├── Validate-Guid.ps1
 │   ├── HtmlEncode.ps1
 │   └── Write-Log.ps1
+│
+├── Presets                    # JSON-backed resource presets & allow-list
+│   ├── resource-presets.json
+│   └── supported-resource-types.json
 │
 └── Tests                      # Pester 5 test suite
     ├── Get-UTCMAvailableSnapshot.Tests.ps1
@@ -274,9 +280,9 @@ Grants the **UTCM service principal** read‑level access across selected worklo
 
   **Entra** → `Policy.Read.All`, `Directory.Read.All` (Graph app roles).
   **Exchange** → `Exchange.ManageAsApp` (EXO app permission). 
-  **Intune** → `DeviceManagementConfiguration.Read.All` (Graph app role). 
+  **Intune** → `DeviceManagementConfiguration.Read.All`, `DeviceManagementRBAC.Read.All` (Graph app roles). 
   **Security & Compliance** → `Exchange.ManageAsApp` (EXO app permission), `InformationProtectionConfig.Read.All`, `Directory.Read.All` 
-  **Teams** → `Organization.Read.All` (Graph app role, where app‑only supported). 
+  **Teams** → `Organization.Read.All`, `TeamSettings.Read.All` (Graph app roles). 
 
 **Usage**
   **All workloads**
@@ -345,19 +351,53 @@ Get-UTCMAvailableSnapshot -AsJson
 ---
 
 ### `New-UTCMSnapshot`
-Create a new snapshot.
+Create a new snapshot. Resources can be specified explicitly or via a named preset (JSON-backed, tab-completable).
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-Preset` | `TenantCore` | Named preset from `Presets\resource-presets.json` |
+| `-Resources` | — | Explicit UTCM resource identifiers (overrides `-Preset`) |
+| `-DisplayName` | Auto-generated | Friendly snapshot name |
+| `-Description` | `"Baseline snapshot"` | Snapshot description |
+| `-PollingIntervalSeconds` | `10` | Seconds between status polls |
 
 ```powershell
+# Use default TenantCore preset
 New-UTCMSnapshot
+
+# Use a specific preset
+New-UTCMSnapshot -Preset ExchangeCore
+
+# Explicit resource list
+New-UTCMSnapshot -Resources 'microsoft.exchange.sharedmailbox','microsoft.exchange.transportrule'
+
+# Faster polling
 New-UTCMSnapshot -PollingIntervalSeconds 5
 ```
+
+Available presets: `ExchangeCore`, `EntraCore`, `TeamsCore`, `IntuneCore`, `SecCompCore`, `TenantCore`, `TeamsCore+Voice`, `IntuneCore+Roles`, `SecurityCore`. See `Get-UTCMPreset` to inspect them.
 
 ---
 
 ### `Get-UTCMSnapshot`
+Retrieve a snapshot job by ID. Use `-IncludeItems` to download the full configuration payload from `resourceLocation`.
+
+| Parameter | Description |
+|---|---|
+| `-SnapshotId` | GUID of the snapshot job (mandatory) |
+| `-IncludeDetails` | Include `resourceLocation` and `errorDetails` in response |
+| `-IncludeItems` | Download artifact and attach `configurationItems` |
+| `-AsJson` | Return result as JSON string |
 
 ```powershell
+# Basic metadata
 Get-UTCMSnapshot -SnapshotId <GUID>
+
+# Full configuration items
+Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems
+
+# JSON output
+Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems -AsJson
 ```
 
 ---
@@ -390,6 +430,22 @@ New-UTCMDriftReport -Diff $diff -SnapshotId <GUID> -OutputPath .\Reports
 ```
 
 Outputs HTML + CSV.
+
+---
+
+### `Get-UTCMPreset`
+List available resource presets or inspect the resources in a specific preset.
+
+```powershell
+# List all preset names
+Get-UTCMPreset
+
+# Show resources in a preset
+Get-UTCMPreset -Name ExchangeCore
+
+# Raw string array (useful for piping)
+Get-UTCMPreset -Name TenantCore -Raw
+```
 
 ---
 

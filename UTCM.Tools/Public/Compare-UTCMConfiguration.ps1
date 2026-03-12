@@ -26,14 +26,19 @@ function Compare-UTCMConfiguration {
 
     Ensure-GraphConnection
 
-    # Fetch baseline snapshot
-    $baseline = Get-UTCMSnapshot -SnapshotId $BaselineSnapshotId
+    # Fetch baseline snapshot (must include items for comparison)
+    $baseline = Get-UTCMSnapshot -SnapshotId $BaselineSnapshotId -IncludeItems
 
     # Fetch comparison snapshot (either current-state temp or another fixed snapshot)
     if ($PSCmdlet.ParameterSetName -eq 'AgainstCurrent') {
-        $compare = Get-UTCMCurrentStateSnapshot -PollingIntervalSeconds $PollingIntervalSeconds
+        # Derive resources from the baseline so the temp snapshot covers the same scope
+        $baselineResources = @($baseline.configurationItems | ForEach-Object { $_.type } | Select-Object -Unique)
+        if (-not $baselineResources -or $baselineResources.Count -eq 0) {
+            throw "Baseline snapshot has no configurationItems; cannot determine resources for current-state comparison."
+        }
+        $compare = Get-UTCMCurrentStateSnapshot -Resources $baselineResources -PollingIntervalSeconds $PollingIntervalSeconds
     } else {
-        $compare = Get-UTCMSnapshot -SnapshotId $CompareSnapshotId
+        $compare = Get-UTCMSnapshot -SnapshotId $CompareSnapshotId -IncludeItems
     }
 
     # Normalize to stable comparison set (avoid slow JSON roundtrips on entire object)
