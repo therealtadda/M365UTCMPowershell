@@ -94,7 +94,12 @@ function Get-UTCMAvailableSnapshot {
     do {
         $page = Invoke-GraphRequestWithRetry -Method 'GET' -Uri $uri
         if ($page.value) { $all += $page.value }
-        $uri = $page.'@odata.nextLink'
+        $uri = $null
+        if ($page -is [System.Collections.IDictionary]) {
+            if ($page.ContainsKey('@odata.nextLink')) { $uri = $page['@odata.nextLink'] }
+        } elseif ($page.PSObject.Properties.Match('@odata.nextLink').Count) {
+            $uri = $page.'@odata.nextLink'
+        }
     } while ($uri)
 
     # -------------------------------

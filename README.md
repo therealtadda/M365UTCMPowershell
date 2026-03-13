@@ -1,97 +1,96 @@
 # UTCM.Tools
 
-**UTCM.Tools** is a PowerShell 7+ module for working with Microsoft Graph’s  
+**UTCM.Tools** is a PowerShell 7+ module for working with Microsoft Graph's
 **Unified Tenant Configuration Management (UTCM)** public preview APIs.
 
 It enables:
 
-- Creating and retrieving **snapshots** of Microsoft 365 tenant configuration  
-- Comparing snapshots to **current** configuration or to other snapshots  
-- Detailed, sortable **HTML drift reports** and **CSV** exports  
-- Exporting snapshots to **JSON**  
-- Automation-friendly behavior with **bind-time validation**, **retry logic**, and **Pester tests**  
+- Creating and retrieving **snapshots** of Microsoft 365 tenant configuration
+- Comparing snapshots to **current** configuration or to other snapshots
+- Detailed, sortable **HTML drift reports** and **CSV** exports
+- Exporting snapshots to **JSON**
+- Automation-friendly behavior with **bind-time validation**, **retry logic**, and **Pester tests**
 
-> ⚠️ **UTCM APIs are in public preview.** Configuration apply/restore is **not yet available**.  
+> :warning: **UTCM APIs are in public preview.** Configuration apply/restore is **not yet available**.
 > This module focuses solely on **read**, **compare**, and **report** workflows.
 
 ---
 
-## Required Graph Permissions
+## Permissions
 
-To use the module correctly, you must authenticate with Microsoft Graph permissions that allow reading and managing UTCM snapshots.
-
-### Minimum Required Permissions
-
-| Purpose                                         | Permission                                | Why It's Required                                                                 |
-|-------------------------------------------------|--------------------------------------------|------------------------------------------------------------------------------------|
-| Snapshot creation, retrieval, drift comparison  | `ConfigurationMonitoring.ReadWrite.All`  | Required to create snapshot jobs, list snapshots, retrieve configuration items, and perform drift comparisons. |
-
-### Connect Example
+### Graph Connection (interactive user)
 
 ```powershell
 Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All"
 ```
 
----
+### UTCM Service Principal Permissions
 
-## Features
+The UTCM service principal (`03b07b79-c5bc-4b5e-9bfa-13acf4a99998`) requires
+workload-specific permissions. Use `Grant-UTCMWorkloadAccess` to assign them.
 
-### Snapshot Lifecycle
-- Create new UTCM snapshots
-- List available snapshots
-- Retrieve detailed snapshot content
-- Export snapshot configuration items to JSON
+#### Graph App Roles
 
-### Drift Detection
-- Compare baseline → current state
-- Compare baseline → another snapshot
-- Normalize objects for stable and meaningful drift analysis
+| Workload | Graph App Roles |
+|---|---|
+| **Entra** | `Policy.Read.All`, `Directory.Read.All` |
+| **Exchange** | `Exchange.ManageAsApp` (on Office 365 Exchange Online resource) |
+| **Intune** | `DeviceManagementConfiguration.Read.All`, `DeviceManagementRBAC.Read.All`, `DeviceManagementManagedDevices.Read.All`, `DeviceManagementApps.Read.All`, `DeviceManagementServiceConfig.Read.All`, `Group.Read.All` |
+| **Security & Compliance** | `Exchange.ManageAsApp`, `InformationProtectionConfig.Read.All`, `Directory.Read.All` |
+| **Teams** | `Organization.Read.All`, `TeamSettings.Read.All` |
 
-### Reporting
-- Generate self-contained **HTML drift dashboards**
-- Export **CSV** for Excel and Power BI
-- Color-coded and sortable report output
+#### Exchange Online RBAC Roles (scoped to the SP via `-App`)
 
-### Engineering Quality
-- Strict mode enabled
-- Folder‑organized public/private functions
-- Retry wrapper for Graph calls (429/503 aware)
-- Bind-time validation (GUIDs, numeric ranges)
-- Pester 5 test suite with module-scoped mocks
-- Non-interactive mode for CI/CD (`-NoPrompt`)
+| Workload | EXO Management Roles |
+|---|---|
+| **Exchange** | `View-Only Configuration`, `View-Only Recipients` |
+| **Security & Compliance** | `View-Only Configuration`, `Security Reader` (EXO role, NOT the Entra directory role) |
+
+> These are assigned via `New-ManagementRoleAssignment -App` and are scoped exclusively
+> to the UTCM service principal -- no tenant-wide Entra directory roles are used for
+> Exchange or S&C workloads.
+
+#### Entra Directory Roles
+
+| Workload | Directory Role | Why |
+|---|---|---|
+| **Teams** | `Global Reader` | Required by all UTCM Teams resources per [official docs](https://learn.microsoft.com/en-us/graph/utcm-teams-resources) |
+
+> `Global Reader` is the only tenant-wide directory role used. It is required for Teams
+> and there is no lesser alternative in the current UTCM API.
+
+#### Required Modules
+
+| Module | Required For |
+|---|---|
+| `Microsoft.Graph.Authentication` | All operations (Graph API calls) |
+| `ExchangeOnlineManagement` | `Grant-UTCMWorkloadAccess -Workloads Exchange` or `SecurityAndCompliance` (EXO RBAC setup) |
 
 ---
 
 ## Requirements
 
 - PowerShell **7+**
-- Microsoft Graph PowerShell SDK:
+- `Microsoft.Graph.Authentication` module:
   ```powershell
-  Install-Module Microsoft.Graph -Scope CurrentUser
+  Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
   ```
-- Required Graph scope:
-  - `ConfigurationMonitoring.ReadWrite.All`
+- `ExchangeOnlineManagement` (optional, for Exchange/S&C RBAC):
+  ```powershell
+  Install-Module ExchangeOnlineManagement -Scope CurrentUser
+  ```
 
 ---
 
 ## Installation
 
-### Per‑User Installation (Recommended)
+### Per-User Installation (Recommended)
 
 ```powershell
 $mod = Join-Path $HOME "Documents/PowerShell/Modules/UTCM.Tools"
 New-Item -ItemType Directory -Path $mod -Force | Out-Null
-
-# Copy the module contents into $mod (Public/, Private/, UTCM.Tools.psd1, UTCM.Tools.psm1, Tests/)
-Import-Module (Join-Path $mod 'UTCM.Tools.psd1') -Force
-```
-
-### Machine‑Wide Installation (Admin)
-
-Place the module folder in:
-
-```
-C:\Program Files\PowerShell\Modules\UTCM.Tools\
+Copy-Item -Path '.\UTCM.Tools\*' -Destination $mod -Recurse -Force
+Import-Module UTCM.Tools -Force
 ```
 
 ### Verify Installation
@@ -101,53 +100,54 @@ Import-Module UTCM.Tools -Force
 Get-Command -Module UTCM.Tools
 ```
 
+Expected: 12 exported functions.
+
 ---
 
 ## Module Structure
 
 ```
-UTCM.Tools
-│
-├── UTCM.Tools.psd1            # Module manifest
-├── UTCM.Tools.psm1            # Root module (strict mode + loader + retry guard)
-│
-├── Public                     # Exported cmdlets
-│   ├── Enable-UTCM.ps1
-│   ├── Grant-UTCMWorkloadAccess.ps1
-│   ├── Initialize-UTCM.ps1
-│   ├── Test-UTCMSetup.ps1
-│   ├── Get-UTCMAvailableSnapshot.ps1
-│   ├── New-UTCMSnapshot.ps1
-│   ├── Get-UTCMSnapshot.ps1
-│   ├── Get-UTCMPreset.ps1
-│   ├── Compare-UTCMConfiguration.ps1
-│   ├── Export-UTCMSnapshot.ps1
-│   ├── New-UTCMDriftReport.ps1
-│   └── Get-UTCMTenantDriftReport.ps1
-│
-├── Private                    # Internal helpers (not exported)
-│   ├── Ensure-GraphConnection.ps1
-│   ├── Invoke-GraphRequestWithRetry.ps1
-│   ├── Get-UTCMCurrentStateSnapshot.ps1
-│   ├── ConvertTo-NormalizedJson.ps1
-│   ├── Presets.ps1
-│   ├── Resolve-OutputPath.ps1
-│   ├── Validate-Guid.ps1
-│   ├── HtmlEncode.ps1
-│   └── Write-Log.ps1
-│
-├── Presets                    # JSON-backed resource presets & allow-list
-│   ├── resource-presets.json
-│   └── supported-resource-types.json
-│
-└── Tests                      # Pester 5 test suite
-    ├── Get-UTCMAvailableSnapshot.Tests.ps1
-    ├── New-UTCMSnapshot.Tests.ps1
-    ├── Get-UTCMSnapshot.Tests.ps1
-    ├── Compare-UTCMConfiguration.Tests.ps1
-    ├── Export-UTCMSnapshot.Tests.ps1
-    ├── New-UTCMDriftReport.Tests.ps1
-    └── Get-UTCMTenantDriftReport.Tests.ps1
+UTCM.Tools/
++-- UTCM.Tools.psd1            # Module manifest
++-- UTCM.Tools.psm1            # Root module (strict mode + loader)
+|
++-- Public/                    # Exported functions (12)
+|   +-- Enable-UTCM.ps1
+|   +-- Grant-UTCMWorkloadAccess.ps1
+|   +-- Initialize-UTCM.ps1
+|   +-- Test-UTCMSetup.ps1
+|   +-- Get-UTCMAvailableSnapshot.ps1
+|   +-- New-UTCMSnapshot.ps1
+|   +-- Get-UTCMSnapshot.ps1
+|   +-- Get-UTCMPreset.ps1
+|   +-- Compare-UTCMConfiguration.ps1
+|   +-- Export-UTCMSnapshot.ps1
+|   +-- New-UTCMDriftReport.ps1
+|   +-- Get-UTCMTenantDriftReport.ps1
+|
++-- Private/                   # Internal helpers (not exported)
+|   +-- Ensure-GraphConnection.ps1
+|   +-- Invoke-GraphRequestWithRetry.ps1
+|   +-- Get-UTCMCurrentStateSnapshot.ps1
+|   +-- ConvertTo-NormalizedJson.ps1
+|   +-- Presets.ps1
+|   +-- Resolve-OutputPath.ps1
+|   +-- Validate-Guid.ps1
+|   +-- HtmlEncode.ps1
+|   +-- Write-Log.ps1
+|
++-- Presets/                   # JSON-backed resource presets & allow-list
+|   +-- resource-presets.json
+|   +-- supported-resource-types.json
+|
++-- Tests/                     # Pester 5 test suite
+    +-- Compare-UTCMConfiguration.Tests.ps1
+    +-- Export-UTCMSnapshot.Tests.ps1
+    +-- Get-UTCMAvailableSnapshot.Tests.ps1
+    +-- Get-UTCMSnapshot.Tests.ps1
+    +-- Get-UTCMTenantDriftReport.Tests.ps1
+    +-- New-UTCMDriftReport.Tests.ps1
+    +-- New-UTCMSnapshot.Tests.ps1
 ```
 
 ---
@@ -155,105 +155,16 @@ UTCM.Tools
 ## Quick Start
 
 ```powershell
-# Connect to Graph
-Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All"
+# 1. Bootstrap UTCM (one-time)
+Import-Module UTCM.Tools -Force
+Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All","Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All","Directory.ReadWrite.All"
+Initialize-UTCM -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
 
-# Create a new snapshot
-$baseline = New-UTCMSnapshot
+# 2. Create a baseline snapshot
+$snap = New-UTCMSnapshot -DisplayName "Baseline March 2026"
 
-# Compare to current tenant state and build HTML + CSV reports
-Get-UTCMTenantDriftReport `
-  -SnapshotId $baseline `
-  -CompareToCurrent `
-  -Dashboard `
-  -ExportJson `
-  -OutputPath .\Reports `
-  -NoPrompt
-```
-
----
-
-## Example Outputs
-
-### Snapshot list
-
-```
-id                                   displayName               createdDateTime             status
---                                   -----------               --------------------------- --------
-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee Baseline 2026-02-12       2026-02-12T14:47:10Z        completed
-11111111-2222-3333-4444-555555555555 Pre-Change Audit          2026-02-05T09:22:15Z        completed
-```
-
----
-
-### Snapshot object (abbreviated)
-
-```
-id           : aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
-status       : completed
-configurationItems :
-  [
-    {
-      "id": "/identity/conditionalAccess/policies/abc123",
-      "displayName": "Require MFA for Admins",
-      "type": "conditionalAccessPolicy",
-      "data": { "state": "enabled", "conditions": {...} }
-    },
-    {
-      "id": "/exchange/transportRules/xyz456",
-      "displayName": "Block Executables",
-      "type": "exchangeTransportRule",
-      "data": {...}
-    }
-  ]
-```
-
----
-
-### Drift Comparison Output
-
-```
-id     displayName              type                    normalizedData            SideIndicator
---     -----------              ----                    --------------            -------------
-1      Require MFA for Admins   conditionalAccessPolicy  {...disabled...}          =>
-2      Block Executables        exchangeTransportRule    {...ruleDisabled...}      <=
-3      Teams Meeting Policy     teamsPolicy              {...lobby:false...}       =>
-```
-
-**Legend**  
-- `=>` Added/changed in **current** state  
-- `<=` Removed/changed from the **baseline**  
-
----
-
-### JSON Export Example
-
-```json
-[
-  {
-    "id": "/identity/conditionalAccess/policies/abc123",
-    "displayName": "Require MFA for Admins",
-    "type": "conditionalAccessPolicy",
-    "data": { "state": "enabled" }
-  }
-]
-```
-
----
-
-### HTML Drift Dashboard (illustration)
-
-```
-+--------------------------------------------------------------+
-|                     UTCM Drift Report                        |
-| Baseline: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee               |
-+------------------+-----------------------+--------------------+
-| ID               | Display Name          | Drift Type         |
-+------------------+-----------------------+--------------------+
-| /identity/...123 | Require MFA Admins    | Added in Current   |
-| /exchange/...456 | Block Executables     | Missing in Current |
-| /teams/...789    | Teams Meeting Policy  | Changed            |
-+--------------------------------------------------------------+
+# 3. Generate drift report against current tenant state
+Get-UTCMTenantDriftReport -SnapshotId $snap.id -CompareToCurrent -Dashboard -OutputPath .\Reports -NoPrompt
 ```
 
 ---
@@ -261,9 +172,9 @@ id     displayName              type                    normalizedData          
 ## Command Reference
 
 ### `Enable-UTCM`
-Ensure the Microsoft‑owned **UTCM service principal** exists in your tenant (idempotent). Uses AppId `03b07b79-c5bc-4b5e-9bfa-13acf4a99998`. [1](https://learn.microsoft.com/en-us/graph/utcm-authentication-setup)
 
-**Usage**
+Ensures the Microsoft-owned UTCM service principal exists in your tenant (idempotent).
+
 ```powershell
 Enable-UTCM
 ```
@@ -271,35 +182,39 @@ Enable-UTCM
 ---
 
 ### `Grant-UTCMWorkloadAccess`
-Grants the **UTCM service principal** read‑level access across selected workloads. Supported values: `Entra`, `Exchange`, `Intune`, `SecurityAndCompliance`, `Teams`.
 
-> ⚠️ This is murky as all get out, and there are likely multiple ways to do this, but we're trying for least priv here.
-> Suggestions on making this better are eminently welcome
+Grants the UTCM service principal minimum read-level access across selected workloads.
 
-**What it assigns**
+**What it assigns per workload:**
 
-  **Entra** → `Policy.Read.All`, `Directory.Read.All` (Graph app roles).
-  **Exchange** → `Exchange.ManageAsApp` (EXO app permission). 
-  **Intune** → `DeviceManagementConfiguration.Read.All`, `DeviceManagementRBAC.Read.All` (Graph app roles). 
-  **Security & Compliance** → `Exchange.ManageAsApp` (EXO app permission), `InformationProtectionConfig.Read.All`, `Directory.Read.All` 
-  **Teams** → `Organization.Read.All`, `TeamSettings.Read.All` (Graph app roles). 
+| Workload | Graph App Roles | EXO RBAC | Entra Directory Role |
+|---|---|---|---|
+| Entra | `Policy.Read.All`, `Directory.Read.All` | -- | -- |
+| Exchange | `Exchange.ManageAsApp` | `View-Only Configuration`, `View-Only Recipients` | -- |
+| Intune | 6 Graph app roles (see Permissions section) | -- | -- |
+| SecurityAndCompliance | `Exchange.ManageAsApp`, `InformationProtectionConfig.Read.All`, `Directory.Read.All` | `View-Only Configuration`, `Security Reader` | -- |
+| Teams | `Organization.Read.All`, `TeamSettings.Read.All` | -- | `Global Reader` |
 
-**Usage**
-  **All workloads**
-  ```powershell
-  Grant-UTCMWorkloadAccess -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
-  ```
-  **Subset**
-  ```powershell
-  Grant-UTCMWorkloadAccess -Workloads Entra,Exchange
-  ```
+```powershell
+# All workloads
+Grant-UTCMWorkloadAccess
+
+# Subset
+Grant-UTCMWorkloadAccess -Workloads Entra,Exchange
+
+# Exchange requires ExchangeOnlineManagement -- will prompt for EXO auth
+Grant-UTCMWorkloadAccess -Workloads Exchange
+```
+
+> **Note:** Exchange and S&C workloads require `ExchangeOnlineManagement` module.
+> The function connects to EXO automatically (WAM first, device-code fallback).
 
 ---
 
 ### `Initialize-UTCM`
-One‑shot wrapper that runs `Enable‑UTCM` and `Grant‑UTCMWorkloadAccess`.
 
-**Usage**
+One-shot wrapper: runs `Enable-UTCM` then `Grant-UTCMWorkloadAccess`.
+
 ```powershell
 Initialize-UTCM -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
 ```
@@ -307,117 +222,100 @@ Initialize-UTCM -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
 ---
 
 ### `Test-UTCMSetup`
-Report and validate the **UTCM service principal** configuration: shows app‑role assignments (resource → role value) and directory roles (e.g., **Security Reader** for S&C). Helpful for CI and post‑bootstrap verification. (Reads Microsoft Graph directory and SP metadata.)
 
-**Usage**
+Validates the UTCM service principal: shows app-role assignments and directory roles.
+
 ```powershell
-# After Initialize-UTCM or Enable-UTCM/Grant-UTCMWorkloadAccess
-$check = Test-UTCMSetup
-$check | Format-List
-
-# Example output:
-# UtcmsSpDisplayName : Unified Tenant Configuration Management
-# ObjectId           : 00000000-1111-2222-3333-444444444444
-# AppRoleAssignments : { Microsoft Graph :: Policy.Read.All,
-#                        Microsoft Graph :: Directory.Read.All,
-#                        Office 365 Exchange Online :: Exchange.ManageAsApp,
-#                        Microsoft Graph :: DeviceManagementConfiguration.Read.All,
-#                        Microsoft Graph :: TeamSettings.Read.All }
-# DirectoryRoles     : Security Reader
-```
-
-**CI-friendly guard**
-```powershell
-$report = Test-UTCMSetup
-if (-not $report) { throw "UTCM SP not found." }
-
-if (-not ($report.AppRoleAssignments -match 'Policy.Read.All')) { throw "Missing Entra read role." }
-if (-not ($report.AppRoleAssignments -match 'Exchange.ManageAsApp')) { throw "Missing EXO app-only permission." }
-if (-not ($report.AppRoleAssignments -match 'DeviceManagementConfiguration.Read.All')) { Write-Warning "Intune read role not found." }
-if (-not ($report.DirectoryRoles -match 'Security Reader')) { Write-Warning "Security Reader not found (S&C read may be limited)." }
-```
-
----
-
-### `Get-UTCMAvailableSnapshot`
-List all available UTCM snapshots.
-
-**Usage**
-```powershell
-Get-UTCMAvailableSnapshot
-Get-UTCMAvailableSnapshot -AsJson
+Test-UTCMSetup
 ```
 
 ---
 
 ### `New-UTCMSnapshot`
-Create a new snapshot. Resources can be specified explicitly or via a named preset (JSON-backed, tab-completable).
+
+Creates a new UTCM snapshot. Resources can be specified explicitly or via a named preset.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `-Preset` | `TenantCore` | Named preset from `Presets\resource-presets.json` |
-| `-Resources` | — | Explicit UTCM resource identifiers (overrides `-Preset`) |
-| `-DisplayName` | Auto-generated | Friendly snapshot name |
-| `-Description` | `"Baseline snapshot"` | Snapshot description |
-| `-PollingIntervalSeconds` | `10` | Seconds between status polls |
+| `-Preset` | `TenantCore` | Named preset from `Presets/resource-presets.json` |
+| `-Resources` | -- | Explicit resource identifiers (overrides `-Preset`) |
+| `-DisplayName` | Auto-generated | Friendly name (alphanumeric + spaces only) |
+| `-Description` | `"Baseline snapshot"` | Description |
+| `-PollingIntervalSeconds` | `10` | Poll interval during job execution |
 
 ```powershell
-# Use default TenantCore preset
 New-UTCMSnapshot
-
-# Use a specific preset
 New-UTCMSnapshot -Preset ExchangeCore
-
-# Explicit resource list
 New-UTCMSnapshot -Resources 'microsoft.exchange.sharedmailbox','microsoft.exchange.transportrule'
-
-# Faster polling
-New-UTCMSnapshot -PollingIntervalSeconds 5
+New-UTCMSnapshot -DisplayName "Pre Change Audit 20260313"
 ```
 
-Available presets: `ExchangeCore`, `EntraCore`, `TeamsCore`, `IntuneCore`, `SecCompCore`, `TenantCore`, `TeamsCore+Voice`, `IntuneCore+Roles`, `SecurityCore`. See `Get-UTCMPreset` to inspect them.
+> **DisplayName constraint:** The UTCM API allows only letters, numbers, and spaces.
+> Any special characters are automatically stripped before submission.
+
+Available presets: `ExchangeCore`, `EntraCore`, `TeamsCore`, `IntuneCore`, `SecCompCore`,
+`TenantCore`, `TeamsCore+Voice`, `IntuneCore+Roles`, `SecurityCore`.
+
+---
+
+### `Get-UTCMAvailableSnapshot`
+
+Lists all available UTCM snapshot jobs.
+
+```powershell
+Get-UTCMAvailableSnapshot
+Get-UTCMAvailableSnapshot -DownloadableOnly
+Get-UTCMAvailableSnapshot -AsJson
+```
 
 ---
 
 ### `Get-UTCMSnapshot`
-Retrieve a snapshot job by ID. Use `-IncludeItems` to download the full configuration payload from `resourceLocation`.
 
-| Parameter | Description |
-|---|---|
-| `-SnapshotId` | GUID of the snapshot job (mandatory) |
-| `-IncludeDetails` | Include `resourceLocation` and `errorDetails` in response |
-| `-IncludeItems` | Download artifact and attach `configurationItems` |
-| `-AsJson` | Return result as JSON string |
+Retrieves a snapshot job by ID. Use `-IncludeItems` to download the full configuration payload.
 
 ```powershell
-# Basic metadata
 Get-UTCMSnapshot -SnapshotId <GUID>
-
-# Full configuration items
-Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems
-
-# JSON output
+Get-UTCMSnapshot -SnapshotId <GUID> -IncludeDetails    # includes errorDetails, resourceLocation
+Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems       # downloads and attaches configurationItems
 Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems -AsJson
+```
+
+> Use `-IncludeDetails` on `partiallySuccessful` snapshots to see per-resource error messages.
+
+---
+
+### `Get-UTCMPreset`
+
+Lists available resource presets or inspects a specific preset.
+
+```powershell
+Get-UTCMPreset                          # list all preset names
+Get-UTCMPreset -Name ExchangeCore       # show resources in preset
+Get-UTCMPreset -Name TenantCore -Raw    # raw string array
 ```
 
 ---
 
 ### `Compare-UTCMConfiguration`
 
+Compares two snapshots or a baseline against current tenant state.
+
 ```powershell
 # Compare two snapshots
 Compare-UTCMConfiguration -BaselineSnapshotId <GUID> -CompareSnapshotId <GUID>
 
 # Compare baseline to current tenant state
-Compare-UTCMConfiguration -BaselineSnapshotId <GUID> -PollingIntervalSeconds 10
+Compare-UTCMConfiguration -BaselineSnapshotId <GUID>
 ```
 
 ---
 
 ### `Export-UTCMSnapshot`
 
+Exports snapshot configuration items to JSON.
+
 ```powershell
-$snap = Get-UTCMSnapshot -SnapshotId <GUID>
 Export-UTCMSnapshot -Snapshot $snap -Path .\Snapshot.json
 ```
 
@@ -425,36 +323,23 @@ Export-UTCMSnapshot -Snapshot $snap -Path .\Snapshot.json
 
 ### `New-UTCMDriftReport`
 
+Generates HTML dashboard and CSV from a diff result.
+
 ```powershell
+$diff = Compare-UTCMConfiguration -BaselineSnapshotId <GUID>
 New-UTCMDriftReport -Diff $diff -SnapshotId <GUID> -OutputPath .\Reports
-```
-
-Outputs HTML + CSV.
-
----
-
-### `Get-UTCMPreset`
-List available resource presets or inspect the resources in a specific preset.
-
-```powershell
-# List all preset names
-Get-UTCMPreset
-
-# Show resources in a preset
-Get-UTCMPreset -Name ExchangeCore
-
-# Raw string array (useful for piping)
-Get-UTCMPreset -Name TenantCore -Raw
 ```
 
 ---
 
 ### `Get-UTCMTenantDriftReport`
 
+End-to-end drift pipeline: snapshot -> compare -> report.
+
 ```powershell
 Get-UTCMTenantDriftReport -CompareToCurrent -Dashboard
 
-# Automated
+# Automated / CI
 Get-UTCMTenantDriftReport `
   -SnapshotId <GUID> `
   -CompareToCurrent `
@@ -468,6 +353,8 @@ Get-UTCMTenantDriftReport `
 
 ## Configuration
 
+Environment variables (optional):
+
 ```powershell
 $env:UTCM_RETRY_TRIES = '5'
 $env:UTCM_RETRY_DELAY_MS = '120'
@@ -478,10 +365,42 @@ Import-Module UTCM.Tools -Force
 
 ## Error Handling
 
-- Handles 429/503  
-- Respects Retry-After  
-- Safe bind-time validation  
-- Snapshot job lifecycle enforcement  
+- **4xx errors** fail immediately (no retry) with full response body extraction
+- **429 / 503** retried with exponential backoff respecting `Retry-After` header
+- **Snapshot job failures** dump full job JSON as a warning for diagnosis
+- **`partiallySuccessful`** snapshots return successfully -- use `-IncludeDetails` to inspect per-resource `errorDetails`
+- Bind-time GUID validation on all snapshot ID parameters
+- Safe `@odata.nextLink` pagination (handles missing property without errors)
+
+---
+
+## Troubleshooting
+
+### Snapshot returns `partiallySuccessful`
+
+```powershell
+$job = Get-UTCMSnapshot -SnapshotId <GUID> -IncludeDetails
+$job.errorDetails | ForEach-Object { "---"; $_ }
+```
+
+Common per-resource failures:
+- **"Access Denied"** -- missing Graph app role or Entra directory role for that workload
+- **"cmdlet not recognized"** -- missing EXO RBAC roles (run `Grant-UTCMWorkloadAccess -Workloads SecurityAndCompliance`)
+- **"DeviceManagementManagedDevices.Read.All"** -- run `Grant-UTCMWorkloadAccess -Workloads Intune`
+
+### EXO connection fails with WAM broker error
+
+The module falls back to device-code flow automatically. If both fail, pre-connect:
+
+```powershell
+Connect-ExchangeOnline
+Grant-UTCMWorkloadAccess -Workloads Exchange
+```
+
+### DisplayName validation error
+
+The UTCM API only allows letters, numbers, and spaces in `DisplayName`.
+The module auto-sanitizes, but if using older code, avoid hyphens/special characters.
 
 ---
 
@@ -489,41 +408,21 @@ Import-Module UTCM.Tools -Force
 
 ```powershell
 Install-Module Pester -Scope CurrentUser
-Import-Module .\UTCM.Tools.psd1 -Force
-Invoke-Pester -Path .\Tests -CI
+Import-Module .\UTCM.Tools\UTCM.Tools.psd1 -Force
+Invoke-Pester -Path .\UTCM.Tools\Tests -CI
 ```
-
----
-
-## Troubleshooting
-
-### Missing Functions
-- Ensure matching function names in `Public\*.ps1`
-- Ensure proper extension: `.ps1`
-- Ensure correct folder names: `Public`, `Private`
-
-### Authentication
-```powershell
-Disconnect-MgGraph
-Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All"
-```
-
-### CI/CD
-Use `-NoPrompt`.
 
 ---
 
 ## Contributing
 
-1. Fork  
-2. Create a `feat/*` or `fix/*` branch  
-3. Add tests  
-4. PR  
+1. Fork
+2. Create a `feat/*` or `fix/*` branch
+3. Add tests
+4. PR
 
 ---
 
 ## License
 
-This project is licensed under the **BSD 3‑Clause License**.
-
-Include a full `LICENSE` file in the repository root.
+This project is licensed under the **BSD 3-Clause License**.

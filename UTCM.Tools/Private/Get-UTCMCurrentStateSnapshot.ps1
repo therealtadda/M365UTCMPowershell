@@ -25,11 +25,23 @@ function Get-UTCMCurrentStateSnapshot {
     } while ($status.status -in @('notStarted','running'))
 
     if ($status.status -notin @('succeeded','partiallySuccessful')) {
-        $errors = $null
-        if ($status.PSObject.Properties.Name -contains 'errorDetails') {
-            $errors = $status.errorDetails -join '; '
-        }
-        throw ("Current-state snapshot job failed with status '{0}'. {1}" -f $status.status, ($errors ?? ''))
+        $errorInfo = @()
+        try {
+            $ed = $null
+            if ($status -is [System.Collections.IDictionary] -and $status.ContainsKey('errorDetails')) {
+                $ed = $status['errorDetails']
+            } elseif ($status.PSObject.Properties.Name -contains 'errorDetails') {
+                $ed = $status.errorDetails
+            }
+            if ($ed -and $ed.Count -gt 0) {
+                $errorInfo += "errorDetails: $($ed -join '; ')"
+            }
+        } catch { <# ignore #> }
+
+        $statusDump = try { $status | ConvertTo-Json -Depth 5 -Compress } catch { $status.ToString() }
+        Write-Warning "Full snapshot job response: $statusDump"
+
+        throw ("Current-state snapshot job failed with status '{0}'. {1}" -f $status.status, ($errorInfo -join ' | '))
     }
 
     # Download snapshot items from resourceLocation (not $expand — unsupported on this entity)

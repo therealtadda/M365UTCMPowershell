@@ -32,7 +32,7 @@ function Get-UTCMSnapshot {
     $qs = "`$select=" + [System.Uri]::EscapeDataString(($select -join ','))
 
     # 2) GET the job
-    $uri = "$($script:SnapshotJobsUri)/$SnapshotId?$qs"
+    $uri = "$($script:SnapshotJobsUri)/${SnapshotId}?${qs}"
     $job = Invoke-GraphRequestWithRetry -Method 'GET' -Uri $uri
 
     # 3) If the caller wants items, download from resourceLocation (for completed jobs)
