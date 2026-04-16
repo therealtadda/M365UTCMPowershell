@@ -1,4 +1,37 @@
 function Compare-UTCMConfiguration {
+    <#
+    .SYNOPSIS
+        Compares two UTCM snapshots or a baseline snapshot against the current tenant state.
+
+    .DESCRIPTION
+        Downloads configuration items from both snapshots, normalizes them via
+        ConvertTo-NormalizedJson, and runs Compare-Object to produce a diff.
+
+        Two parameter sets:
+          ByTwoSnapshots   — compare BaselineSnapshotId vs CompareSnapshotId.
+          AgainstCurrent   — derive resources from the baseline, create a temp current-state
+                             snapshot, and compare.
+
+    .PARAMETER BaselineSnapshotId
+        GUID of the baseline snapshot (mandatory in both parameter sets).
+
+    .PARAMETER CompareSnapshotId
+        GUID of the second snapshot to compare against (ByTwoSnapshots set only).
+
+    .PARAMETER PollingIntervalSeconds
+        Seconds between polls when creating a current-state snapshot. Default: 10.
+
+    .OUTPUTS
+        Array of diff objects with id, displayName, type, normalizedData, and SideIndicator.
+        '=>' = added/changed in current. '<=' = missing/changed from baseline.
+
+    .EXAMPLE
+        Compare-UTCMConfiguration -BaselineSnapshotId $baseId -CompareSnapshotId $compId
+
+    .EXAMPLE
+        # Compare baseline to live tenant
+        Compare-UTCMConfiguration -BaselineSnapshotId $baseId
+    #>
     [CmdletBinding(DefaultParameterSetName='ByTwoSnapshots')]
     param(
         # Baseline is mandatory for both parameter sets

@@ -190,8 +190,16 @@ Grant-UTCMWorkloadAccess -Workloads Exchange
 
         if ($PSCmdlet.ShouldProcess("SP:$PrincipalObjectId", "Assign Entra directory role '$RoleDisplayName'")) {
             $body = @{ '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$PrincipalObjectId" }
-            New-MgDirectoryRoleMemberByRef -DirectoryRoleId $role.Id -BodyParameter $body -ErrorAction Stop
-            Write-Log -Color Green -Message "Assigned Entra directory role '$RoleDisplayName' to UTCM SP."
+            try {
+                New-MgDirectoryRoleMemberByRef -DirectoryRoleId $role.Id -BodyParameter $body -ErrorAction Stop
+                Write-Log -Color Green -Message "Assigned Entra directory role '$RoleDisplayName' to UTCM SP."
+            } catch {
+                if ($_.Exception.Message -match 'Authorization_RequestDenied|Insufficient privileges') {
+                    throw "Cannot assign Entra directory role '$RoleDisplayName': your Graph session lacks the 'RoleManagement.ReadWrite.Directory' scope. " +
+                          "Reconnect with: Connect-MgGraph -Scopes 'RoleManagement.ReadWrite.Directory'  then retry."
+                }
+                throw
+            }
         }
     }
 

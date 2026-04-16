@@ -1,4 +1,49 @@
 function Get-UTCMAvailableSnapshot {
+    <#
+    .SYNOPSIS
+        Lists available UTCM snapshot jobs from the tenant.
+
+    .DESCRIPTION
+        Queries GET /beta/admin/configurationManagement/configurationSnapshotJobs with
+        optional server-side OData filtering ($filter, $select) and client-side post-filters.
+        Returns snapshot job metadata sorted by createdDateTime descending.
+
+    .PARAMETER AsJson
+        Return results as a JSON string instead of objects.
+
+    .PARAMETER Status
+        Filter to specific job status(es): notStarted, running, succeeded, failed, partiallySuccessful.
+
+    .PARAMETER OnlyCompleted
+        Convenience switch — equivalent to -Status succeeded,partiallySuccessful.
+
+    .PARAMETER Since
+        Only return jobs created on or after this datetime (UTC).
+
+    .PARAMETER Until
+        Only return jobs created before this datetime (UTC).
+
+    .PARAMETER Top
+        Limit to the N most recent jobs (client-side).
+
+    .PARAMETER IncludeDetails
+        Include resourceLocation and errorDetails in the server-side $select.
+
+    .PARAMETER Select
+        Custom field names for server-side $select (overrides -IncludeDetails).
+
+    .PARAMETER DownloadableOnly
+        Keep only jobs that have a non-empty resourceLocation.
+
+    .EXAMPLE
+        Get-UTCMAvailableSnapshot
+
+    .EXAMPLE
+        Get-UTCMAvailableSnapshot -OnlyCompleted -DownloadableOnly -Top 5
+
+    .EXAMPLE
+        Get-UTCMAvailableSnapshot -Since (Get-Date).AddDays(-7) -AsJson
+    #>
     [CmdletBinding()]
     param(
         # Original switch kept for compatibility

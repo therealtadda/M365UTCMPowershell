@@ -1,64 +1,65 @@
 function Export-UTCMSnapshot {
     <#
     .SYNOPSIS
-        Download and export a completed UTCM snapshot to disk; optionally split by resource type.
+        Download and export a completed UTCM snapshot to disk in JSON, CSV, and/or HTML format.
 
     .DESCRIPTION
         Accepts either a configurationSnapshotJob object (as returned by New-UTCMSnapshot) or a job Id (GUID).
-        If the job isn't completed yet, this function polls the documented endpoint until a terminal status is reached.
-        It then downloads from job.resourceLocation. For JSON payloads:
-            - Default: writes ONLY the 'configurationItems' array (back-compat).
-            - -Raw:     writes the entire JSON file.
-            - -SplitByResourceType: creates one JSON file per resource instance under <Path>\{workload}\{resourceType}\{name|id}.json.
-              (When splitting, Path should be a directory; it will be created if missing.)
+        If the job isn't completed yet, this function polls until a terminal status is reached.
+        It then downloads from job.resourceLocation and writes the requested formats.
 
-        Endpoints:
-          GET /beta/admin/configurationManagement/configurationSnapshotJobs/{id}
+        Output formats (all enabled by default — use -Format to choose a subset):
+            JSON — configurationItems array (or full payload with -Raw)
+            CSV  — flat table with Id, DisplayName, Type, Workload, Data columns
+            HTML — self-contained sortable dashboard of all configuration items
 
-        Terminal statuses:
-          succeeded, failed, optionally partiallySuccessful.
+        Path behaviour:
+            Path is always treated as a DIRECTORY (created if missing).
+            Files are named Snapshot-{jobId}.{ext}.
 
-        Preview limits:
-          Snapshots retained 7 days; max 12 visible jobs; ~20,000 resources/tenant/month.
+        Legacy switches:
+            -SplitByResourceType creates one JSON file per resource instance under
+            <Path>\{workload}\{resourceType}\{name|id}.json (only JSON, ignores -Format).
 
     .PARAMETER Snapshot
         A configurationSnapshotJob object or a job Id (GUID/string).
 
     .PARAMETER Path
-        Destination path.
-        - If -SplitByResourceType is NOT specified: Path is a FILE path; the parent directory is created if missing.
-        - If -SplitByResourceType is specified:     Path is treated as a DIRECTORY; it (and subfolders) will be created.
+        Destination directory. Created if it does not exist.
+
+    .PARAMETER Format
+        Which formats to write. Default: JSON, CSV, HTML. E.g. -Format JSON,CSV
 
     .PARAMETER PollingIntervalSeconds
         Delay between status polls if the job is not yet complete. (5..300, default 10)
 
     .PARAMETER Raw
-        When specified, write the FULL JSON payload returned by resourceLocation rather than just 'configurationItems'.
-        (Ignored if splitting, where items are always derived from 'configurationItems' if present; otherwise entire payload if array.)
+        Write the FULL JSON payload rather than just 'configurationItems'.
 
     .PARAMETER SplitByResourceType
-        Write one file per resource instance organized under <Path>\{workload}\{resourceType}\{name-or-id}.json.
+        Write one JSON file per resource instance (ignores -Format).
 
     .PARAMETER NameFieldOrder
-        Field precedence to build per-file names when splitting. Default: displayName, name, id.
+        Field precedence for per-file names when splitting. Default: displayName, name, id.
 
     .PARAMETER Overwrite
-        Overwrite the destination file if it exists (non-splitting mode) or overwrite existing files when splitting.
+        Overwrite existing files.
 
     .PARAMETER WriteErrorFileOnFailure
-        When a job is failed, write an error JSON file with job metadata + errorDetails.
+        Write an error JSON file when a job has failed.
 
     .PARAMETER ErrorPath
-        File or directory path to write the error JSON to (used with -WriteErrorFileOnFailure).
-        If a directory is provided, the error file name is 'snapshot-<jobId>-error.json'.
+        Path for the error JSON file.
 
     .OUTPUTS
-        String or String[] (the final file path(s))
+        String[] — the file path(s) written.
     #>
     [CmdletBinding(SupportsShouldProcess=$true)]
     param(
         [Parameter(Mandatory)] $Snapshot,
         [Parameter(Mandatory)][string] $Path,
+        [ValidateSet('JSON','CSV','HTML')]
+        [string[]] $Format = @('JSON','CSV','HTML'),
         [ValidateRange(5,300)][int] $PollingIntervalSeconds = 10,
         [switch] $Raw,
         [switch] $SplitByResourceType,
@@ -177,27 +178,19 @@ function Export-UTCMSnapshot {
         throw "Snapshot job '$($job.id)' has no resourceLocation. Unable to export."
     }
 
-    # Prepare destinations
-    if ($SplitByResourceType) {
-        _EnsureDirectory $Path   # Path is a directory in splitting mode
-    } else {
-        $parentDir = Split-Path -Path $Path -Parent
-        if ($parentDir) { _EnsureDirectory $parentDir }
-        if ((Test-Path -LiteralPath $Path) -and -not $Overwrite) {
-            throw "Destination '$Path' already exists. Use -Overwrite to replace it."
-        }
-    }
+    # Prepare destination directory (Path is always a directory now)
+    _EnsureDirectory $Path
 
-    # Download to a temp file first (resourceLocation may be a SAS URL; no Graph token typically required)
+    # Download to a temp file first (resourceLocation is a Graph API URL that requires auth)
     $tmp = [System.IO.Path]::GetTempFileName()
     $outPaths = @()
 
     try {
         if ($PSCmdlet.ShouldProcess($job.resourceLocation, "Download UTCM snapshot")) {
-            Invoke-WebRequest -Uri $job.resourceLocation -OutFile $tmp -UseBasicParsing -ErrorAction Stop
+            Invoke-MgGraphRequest -Method GET -Uri $job.resourceLocation -OutputFilePath $tmp -ErrorAction Stop
         }
 
-        # Try to interpret as JSON; if not JSON (e.g., ZIP), either write raw (non-splitting) or throw (splitting).
+        # Try to interpret as JSON; if not JSON (e.g., ZIP), write raw file and return.
         $content = Get-Content -LiteralPath $tmp -Raw -ErrorAction Stop
         $json    = $null
         $isJson  = $false
@@ -209,29 +202,25 @@ function Export-UTCMSnapshot {
         }
 
         if (-not $isJson) {
-            if ($SplitByResourceType) {
-                throw "Downloaded snapshot appears to be non-JSON (e.g., ZIP). Splitting by resource type is not supported for this payload."
-            }
-            Copy-Item -LiteralPath $tmp -Destination $Path -Force
-            _WriteLog ("Exported raw UTCM snapshot to '{0}' (job {1}, status {2})" -f $Path, $job.id, $job.status) 'Green'
-            return $Path
+            $rawPath = Join-Path -Path $Path -ChildPath ("Snapshot-{0}.bin" -f $job.id)
+            Copy-Item -LiteralPath $tmp -Destination $rawPath -Force
+            _WriteLog ("Exported raw UTCM snapshot to '{0}' (job {1}, status {2})" -f $rawPath, $job.id, $job.status) 'Green'
+            return $rawPath
         }
 
-        # --- JSON payload handling ---
-        if ($SplitByResourceType) {
-            # Determine the items to split:
-            # Prefer 'configurationItems' if present; else if the root is an array, split that; else error.
-            $items = $null
-            if ($json.PSObject.Properties.Name -contains 'configurationItems') {
-                $items = $json.configurationItems
-            } elseif ($json -is [System.Collections.IEnumerable]) {
-                $items = $json
-            } else {
-                throw "JSON payload does not contain 'configurationItems' and is not an array—cannot split."
-            }
+        # Extract items
+        $items = $null
+        if ($json.PSObject.Properties.Name -contains 'configurationItems') {
+            $items = $json.configurationItems
+        } elseif ($json -is [System.Collections.IEnumerable]) {
+            $items = $json
+        } else {
+            $items = @($json)
+        }
 
+        # --- SplitByResourceType (JSON only, existing behaviour) ---
+        if ($SplitByResourceType) {
             foreach ($item in $items) {
-                # Get resourceType and workload
                 $rt = $null
                 if ($item.PSObject.Properties.Name -contains 'resourceType') { $rt = [string]$item.resourceType }
                 elseif ($item.PSObject.Properties.Name -contains 'type')     { $rt = [string]$item.type }
@@ -243,11 +232,10 @@ function Export-UTCMSnapshot {
                 $safeWorkload = _Sanitize($workload)  ?? 'unknown'
                 $safeRt       = _Sanitize($rt)        ?? 'unknown'
 
-                # Choose a friendly file name based on NameFieldOrder
                 $base = $null
                 foreach ($f in $NameFieldOrder) {
                     if ($item.PSObject.Properties.Name -contains $f) {
-                        $val  = [string]($item.($f))            # <-- FIXED dynamic access
+                        $val  = [string]($item.($f))
                         $cand = _Sanitize($val)
                         if ($cand) { $base = $cand; break }
                     }
@@ -270,21 +258,187 @@ function Export-UTCMSnapshot {
             _WriteLog ("Exported {0} items under '{1}' (job {2}, status {3})" -f $outPaths.Count, $Path, $job.id, $job.status) 'Green'
             return $outPaths
         }
-        else {
-            # Non-splitting JSON path
+
+        # --- Multi-format export -----------------------------------------------
+        $baseName = "Snapshot-{0}" -f $job.id
+
+        # JSON
+        if ('JSON' -in $Format) {
+            $jsonPath = Join-Path -Path $Path -ChildPath ("$baseName.json")
             if ($Raw) {
-                $json | ConvertTo-Json -Depth 99 | Out-File -LiteralPath $Path -Encoding UTF8
+                $json | ConvertTo-Json -Depth 99 | Out-File -LiteralPath $jsonPath -Encoding UTF8
             } else {
-                if ($json.PSObject.Properties.Name -contains 'configurationItems') {
-                    $json.configurationItems | ConvertTo-Json -Depth 99 | Out-File -LiteralPath $Path -Encoding UTF8
-                } else {
-                    $json | ConvertTo-Json -Depth 99 | Out-File -LiteralPath $Path -Encoding UTF8
+                $items | ConvertTo-Json -Depth 99 | Out-File -LiteralPath $jsonPath -Encoding UTF8
+            }
+            _WriteLog ("JSON  -> $jsonPath") 'Green'
+            $outPaths += $jsonPath
+        }
+
+        # CSV
+        if ('CSV' -in $Format) {
+            $csvPath = Join-Path -Path $Path -ChildPath ("$baseName.csv")
+            $items | ForEach-Object {
+                $typeVal = if ($_.PSObject.Properties.Name -contains 'type') { $_.type }
+                           elseif ($_.PSObject.Properties.Name -contains 'resourceType') { $_.resourceType }
+                           else { $null }
+                $wl      = if ($_.PSObject.Properties.Name -contains 'workload') { $_.workload }
+                           else { _WorkloadFromResourceType $typeVal }
+                $dataStr = if ($_.PSObject.Properties.Name -contains 'data') {
+                               try { $_.data | ConvertTo-Json -Depth 20 -Compress } catch { [string]$_.data }
+                           } else { '' }
+                [pscustomobject]@{
+                    Id          = $_.id
+                    DisplayName = $_.displayName
+                    Type        = $typeVal
+                    Workload    = $wl
+                    Data        = $dataStr
                 }
+            } | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
+            _WriteLog ("CSV   -> $csvPath") 'Green'
+            $outPaths += $csvPath
+        }
+
+        # HTML
+        if ('HTML' -in $Format) {
+            $htmlPath = Join-Path -Path $Path -ChildPath ("$baseName.html")
+
+            # Safe HTML encoder
+            $encodeFn = if (Get-Command -Name HtmlEncode -ErrorAction SilentlyContinue) {
+                { param($v) HtmlEncode $v }
+            } else {
+                { param($v) if ($null -eq $v) { '' } else { [System.Net.WebUtility]::HtmlEncode([string]$v) } }
             }
 
-            _WriteLog ("Exported UTCM snapshot to '{0}' (job {1}, status {2})" -f $Path, $job.id, $job.status) 'Green'
-            return $Path
+            $snapshotName = ''
+            $createdStr   = ''
+            try {
+                if ($job.PSObject.Properties.Name -contains 'displayName') { $snapshotName = $job.displayName }
+                if ($job.PSObject.Properties.Name -contains 'createdDateTime') { $createdStr = (Get-Date $job.createdDateTime).ToString('yyyy-MM-dd HH:mm:ss') }
+            } catch {}
+
+            # Group items by workload for summary
+            $groups = @{}
+            foreach ($item in $items) {
+                $typeVal = if ($item.PSObject.Properties.Name -contains 'type') { $item.type }
+                           elseif ($item.PSObject.Properties.Name -contains 'resourceType') { $item.resourceType }
+                           else { 'unknown' }
+                $wl      = if ($item.PSObject.Properties.Name -contains 'workload') { $item.workload }
+                           else { _WorkloadFromResourceType $typeVal }
+                if (-not $groups.ContainsKey($wl)) { $groups[$wl] = 0 }
+                $groups[$wl]++
+            }
+            $summarySpans = ($groups.GetEnumerator() | Sort-Object Name | ForEach-Object {
+                "<span style='background:#e0e0e0;padding:4px 8px;border-radius:4px;display:inline-block;margin:2px 4px'>" +
+                (& $encodeFn $_.Name) + ": $($_.Value)</span>"
+            }) -join ''
+
+            $rowHtml = foreach ($item in $items) {
+                $typeVal = if ($item.PSObject.Properties.Name -contains 'type') { $item.type }
+                           elseif ($item.PSObject.Properties.Name -contains 'resourceType') { $item.resourceType }
+                           else { '' }
+                $wl      = if ($item.PSObject.Properties.Name -contains 'workload') { $item.workload }
+                           else { _WorkloadFromResourceType $typeVal }
+                $dataJson = ''
+                if ($item.PSObject.Properties.Name -contains 'data') {
+                    try { $dataJson = $item.data | ConvertTo-Json -Depth 20 } catch { $dataJson = [string]$item.data }
+                }
+                $rowIdx = [guid]::NewGuid().ToString('N').Substring(0,8)
+                "<tr>
+                    <td>$(& $encodeFn $item.id)</td>
+                    <td>$(& $encodeFn $item.displayName)</td>
+                    <td>$(& $encodeFn $typeVal)</td>
+                    <td>$(& $encodeFn $wl)</td>
+                    <td><button class='toggleBtn' onclick=""toggleDetail('d$rowIdx')"">Show</button>
+                        <div id='d$rowIdx' class='detail' style='display:none'><pre>$(& $encodeFn $dataJson)</pre></div></td>
+                </tr>"
+            }
+
+            $html = @"
+<html>
+<head>
+<meta charset="utf-8">
+<title>UTCM Snapshot Export</title>
+<style>
+body { font-family: Arial, Helvetica, sans-serif; margin: 20px; }
+h2 { margin-bottom: 6px; }
+small { color: #666; }
+table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+th, td { padding: 8px; border: 1px solid #ccc; text-align: left; vertical-align: top; }
+th { background: #333; color: #fff; cursor: pointer; }
+tr:nth-child(even) { background: #f9f9f9; }
+tr:hover { background: #eef; }
+.summary { margin-top: 10px; font-size: 13px; }
+.toggleBtn { font-size: 11px; padding: 2px 8px; cursor: pointer; }
+.detail pre { background: #f4f4f4; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow: auto; font-size: 12px; margin-top: 4px; }
+</style>
+<script>
+function sortTable(n) {
+  var table = document.getElementById("snapTable");
+  var switching = true, dir = "asc";
+  while (switching) {
+    switching = false;
+    var rows = table.rows;
+    for (var i = 1; i < (rows.length - 1); i++) {
+      var x = rows[i].getElementsByTagName("TD")[n];
+      var y = rows[i + 1].getElementsByTagName("TD")[n];
+      if ((dir == "asc"  && x.textContent.toLowerCase() > y.textContent.toLowerCase()) ||
+          (dir == "desc" && x.textContent.toLowerCase() < y.textContent.toLowerCase())) {
+        rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+        switching = true; break;
+      }
+    }
+    if (!switching && dir == "asc") { dir = "desc"; switching = true; }
+  }
+}
+function toggleDetail(id) {
+  var el = document.getElementById(id);
+  var btn = el.parentElement.querySelector('.toggleBtn');
+  if (el.style.display === 'none') { el.style.display = 'block'; btn.textContent = 'Hide'; }
+  else { el.style.display = 'none'; btn.textContent = 'Show'; }
+}
+function expandAll() {
+  document.querySelectorAll('.detail').forEach(function(el){ el.style.display='block'; el.parentElement.querySelector('.toggleBtn').textContent='Hide'; });
+}
+function collapseAll() {
+  document.querySelectorAll('.detail').forEach(function(el){ el.style.display='none'; el.parentElement.querySelector('.toggleBtn').textContent='Show'; });
+}
+</script>
+</head>
+<body>
+  <h2>UTCM Snapshot Export</h2>
+  <small>
+    Snapshot: $(& $encodeFn $snapshotName) ($(& $encodeFn $job.id))
+    &nbsp;|&nbsp; Created: $(& $encodeFn $createdStr)
+    &nbsp;|&nbsp; Status: $(& $encodeFn $job.status)
+    &nbsp;|&nbsp; Items: $($items.Count)
+    &nbsp;|&nbsp; Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+  </small>
+  <div class="summary">$summarySpans</div>
+  <p style="margin-top:8px"><button onclick="expandAll()">Expand All</button> <button onclick="collapseAll()">Collapse All</button></p>
+  <table id="snapTable">
+    <thead>
+      <tr>
+        <th onclick="sortTable(0)">ID</th>
+        <th onclick="sortTable(1)">Display Name</th>
+        <th onclick="sortTable(2)">Type</th>
+        <th onclick="sortTable(3)">Workload</th>
+        <th>Settings</th>
+      </tr>
+    </thead>
+    <tbody>
+      $($rowHtml -join "`n")
+    </tbody>
+  </table>
+</body>
+</html>
+"@
+            $html | Out-File -LiteralPath $htmlPath -Encoding UTF8
+            _WriteLog ("HTML  -> $htmlPath") 'Green'
+            $outPaths += $htmlPath
         }
+
+        _WriteLog ("Exported snapshot {0} ({1} format(s)) to '{2}'" -f $job.id, $outPaths.Count, $Path) 'Green'
+        return $outPaths
     }
     catch {
         if ($WriteErrorFileOnFailure) {
@@ -293,7 +447,6 @@ function Export-UTCMSnapshot {
         throw
     }
     finally {
-        # Cleanup temp
         if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     }
 }

@@ -8,7 +8,7 @@ It enables:
 - Creating and retrieving **snapshots** of Microsoft 365 tenant configuration
 - Comparing snapshots to **current** configuration or to other snapshots
 - Detailed, sortable **HTML drift reports** and **CSV** exports
-- Exporting snapshots to **JSON**
+- Exporting snapshots to **JSON**, **CSV**, and **HTML**
 - Automation-friendly behavior with **bind-time validation**, **retry logic**, and **Pester tests**
 
 > :warning: **UTCM APIs are in public preview.** Configuration apply/restore is **not yet available**.
@@ -23,6 +23,11 @@ It enables:
 ```powershell
 Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All"
 ```
+
+> **For setup / `Initialize-UTCM`:** you also need `Application.ReadWrite.All`,
+> `AppRoleAssignment.ReadWrite.All`, `Directory.ReadWrite.All`, and
+> `RoleManagement.ReadWrite.Directory` (the last one is required to assign the
+> `Global Reader` directory role for Teams).
 
 ### UTCM Service Principal Permissions
 
@@ -102,6 +107,13 @@ Get-Command -Module UTCM.Tools
 
 Expected: 12 exported functions.
 
+All 12 functions include full comment-based help:
+
+```powershell
+Get-Help New-UTCMSnapshot -Full
+Get-Help Get-UTCMTenantDriftReport -Examples
+```
+
 ---
 
 ## Module Structure
@@ -157,7 +169,7 @@ UTCM.Tools/
 ```powershell
 # 1. Bootstrap UTCM (one-time)
 Import-Module UTCM.Tools -Force
-Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All","Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All","Directory.ReadWrite.All"
+Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All","Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All","Directory.ReadWrite.All","RoleManagement.ReadWrite.Directory"
 Initialize-UTCM -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
 
 # 2. Create a baseline snapshot
@@ -313,33 +325,116 @@ Compare-UTCMConfiguration -BaselineSnapshotId <GUID>
 
 ### `Export-UTCMSnapshot`
 
-Exports snapshot configuration items to JSON.
+Downloads and exports a snapshot to JSON, CSV, and/or HTML (all three by default).
+
+`-Path` is always a **directory** (created if missing). Files are named `Snapshot-{jobId}.{ext}`.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-Snapshot` | *(mandatory)* | Snapshot job object or GUID |
+| `-Path` | *(mandatory)* | Output directory |
+| `-Format` | `JSON,CSV,HTML` | Which formats to write |
+| `-Raw` | — | Write full JSON payload instead of just `configurationItems` |
+| `-SplitByResourceType` | — | One JSON file per resource under `{workload}/{type}/` (ignores `-Format`) |
+| `-Overwrite` | — | Overwrite existing files |
 
 ```powershell
-Export-UTCMSnapshot -Snapshot $snap -Path .\Snapshot.json
+# All three formats (default)
+Export-UTCMSnapshot -Snapshot $snap -Path .\exports
+
+# JSON only
+Export-UTCMSnapshot -Snapshot $snap -Path .\exports -Format JSON
+
+# CSV + HTML
+Export-UTCMSnapshot -Snapshot $snap -Path .\exports -Format CSV,HTML
+
+# By snapshot ID
+Export-UTCMSnapshot -Snapshot 99452b34-8a9f-49fb-bdc2-744cbdea7654 -Path .\exports
+
+# Split into per-resource JSON files
+Export-UTCMSnapshot -Snapshot $snap -Path .\exports -SplitByResourceType
 ```
+
+**Output formats:**
+- **JSON** — `configurationItems` array (or full payload with `-Raw`)
+- **CSV** — Flat table: Id, DisplayName, Type, Workload, Data (JSON-compressed)
+- **HTML** — Self-contained sortable dashboard with workload summary badges and expandable per-item settings (Expand All / Collapse All)
 
 ---
 
 ### `New-UTCMDriftReport`
 
-Generates HTML dashboard and CSV from a diff result.
+Generates a paginated HTML dashboard and CSV from a diff result.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-Diff` | *(mandatory)* | Output from `Compare-UTCMConfiguration` |
+| `-SnapshotId` | *(mandatory)* | Baseline snapshot GUID (used in report title) |
+| `-OutputPath` | `.\` | Output directory |
+| `-CurrentItems` | — | Array of current-state `configurationItems` for full-state page |
+
+**HTML output has two pages:**
+1. **Drift Summary** — Added, Removed, and Changed items with expandable normalised-data details per row
+2. **Full Current State** — Every item from the current snapshot with expandable settings (shown when `-CurrentItems` is supplied)
+
+Both pages include sortable columns, Expand All / Collapse All buttons, and cross-page navigation links.
 
 ```powershell
 $diff = Compare-UTCMConfiguration -BaselineSnapshotId <GUID>
 New-UTCMDriftReport -Diff $diff -SnapshotId <GUID> -OutputPath .\Reports
+
+# Include full current state page
+$current = Get-UTCMSnapshot -SnapshotId <CURRENT_GUID> -IncludeItems
+New-UTCMDriftReport -Diff $diff -SnapshotId <GUID> -OutputPath .\Reports `
+  -CurrentItems $current.configurationItems
 ```
+
+Returns a `PSCustomObject` with `HtmlPath`, `CsvPath`, `Added`, `Missing`, `Changed`, and `Opened` properties.
 
 ---
 
 ### `Get-UTCMTenantDriftReport`
 
-End-to-end drift pipeline: snapshot -> compare -> report.
+End-to-end drift pipeline: select baseline -> compare to current -> generate report.
+
+When `-CompareToCurrent` is used, the function creates a fresh "current state" snapshot
+and compares it to the baseline. By default it uses the **same resource types** as the
+baseline. You can override this with `-ComparePreset` or `-CompareResources`.
+
+In interactive mode (no `-NoPrompt`), a numbered menu of available presets is shown so
+you can pick a different resource scope for the comparison.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-SnapshotId` | *(interactive)* | Baseline snapshot GUID (prompted if omitted) |
+| `-CompareToCurrent` | — | Create a current-state snapshot and compare |
+| `-ComparePreset` | — | Named preset for the comparison snapshot |
+| `-CompareResources` | — | Explicit resource identifiers for comparison |
+| `-Dashboard` | — | Generate HTML drift report |
+| `-ExportJson` | — | Export baseline snapshot to JSON |
+| `-OutputPath` | `.\` | Output directory |
+| `-NoPrompt` | — | Non-interactive (CI-friendly) |
 
 ```powershell
+# Interactive: select baseline, choose preset for comparison
 Get-UTCMTenantDriftReport -CompareToCurrent -Dashboard
 
-# Automated / CI
+# Same resources as baseline, no prompts
+Get-UTCMTenantDriftReport `
+  -SnapshotId <GUID> `
+  -CompareToCurrent `
+  -Dashboard `
+  -OutputPath .\Reports `
+  -NoPrompt
+
+# Compare using a specific preset
+Get-UTCMTenantDriftReport `
+  -SnapshotId <GUID> `
+  -CompareToCurrent `
+  -ComparePreset ExchangeCore `
+  -Dashboard
+
+# Full CI pipeline
 Get-UTCMTenantDriftReport `
   -SnapshotId <GUID> `
   -CompareToCurrent `

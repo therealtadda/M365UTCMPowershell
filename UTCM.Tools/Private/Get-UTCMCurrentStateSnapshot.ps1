@@ -51,7 +51,7 @@ function Get-UTCMCurrentStateSnapshot {
 
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
-        Invoke-WebRequest -Uri $status.resourceLocation -OutFile $tmp -UseBasicParsing -ErrorAction Stop
+        Invoke-MgGraphRequest -Method GET -Uri $status.resourceLocation -OutputFilePath $tmp -ErrorAction Stop
         $raw  = Get-Content -LiteralPath $tmp -Raw
         $json = $raw | ConvertFrom-Json -ErrorAction Stop
 

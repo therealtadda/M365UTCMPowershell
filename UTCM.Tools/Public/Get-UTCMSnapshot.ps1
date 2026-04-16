@@ -1,4 +1,40 @@
 function Get-UTCMSnapshot {
+    <#
+    .SYNOPSIS
+        Retrieves a UTCM snapshot job by ID.
+
+    .DESCRIPTION
+        Fetches snapshot job metadata from
+        GET /beta/admin/configurationManagement/configurationSnapshotJobs/{id}.
+        Optionally includes errorDetails/resourceLocation (-IncludeDetails) or downloads
+        the full configuration payload and attaches it as configurationItems (-IncludeItems).
+
+    .PARAMETER SnapshotId
+        The GUID of the snapshot job to retrieve.
+
+    .PARAMETER IncludeDetails
+        Include resourceLocation and errorDetails in the response.
+
+    .PARAMETER IncludeItems
+        Download the snapshot artifact from resourceLocation and attach configurationItems.
+
+    .PARAMETER AsJson
+        Return the result as a JSON string.
+
+    .OUTPUTS
+        PSObject representing the snapshot job, optionally with configurationItems attached.
+
+    .EXAMPLE
+        Get-UTCMSnapshot -SnapshotId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+
+    .EXAMPLE
+        Get-UTCMSnapshot -SnapshotId $id -IncludeItems -AsJson
+
+    .EXAMPLE
+        # Inspect errors on a partiallySuccessful job
+        $job = Get-UTCMSnapshot -SnapshotId $id -IncludeDetails
+        $job.errorDetails | ForEach-Object { "---"; $_ }
+    #>
     [CmdletBinding()]
     param(
         # Validate at bind time; throw a friendly message if invalid

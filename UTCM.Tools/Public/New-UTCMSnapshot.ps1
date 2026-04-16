@@ -1,4 +1,42 @@
 function New-UTCMSnapshot {
+    <#
+    .SYNOPSIS
+        Creates a new UTCM configuration snapshot.
+
+    .DESCRIPTION
+        Submits a createSnapshot request to the UTCM API and polls until the job reaches
+        a terminal status (succeeded, failed, or partiallySuccessful).
+        Resources can be specified explicitly or via a JSON-backed preset.
+
+        DisplayName is auto-sanitized to meet the API constraint (letters, numbers, and spaces only).
+
+    .PARAMETER PollingIntervalSeconds
+        Seconds between status polls while the job runs. Default: 10.
+
+    .PARAMETER Resources
+        Explicit UTCM resource identifiers. Overrides -Preset.
+
+    .PARAMETER Preset
+        Named preset from Presets/resource-presets.json. Default: TenantCore.
+
+    .PARAMETER DisplayName
+        Friendly snapshot name (alphanumeric + spaces only; special characters stripped).
+
+    .PARAMETER Description
+        Snapshot description. Default: "Baseline snapshot".
+
+    .OUTPUTS
+        The completed snapshot job object (id, status, resourceLocation).
+
+    .EXAMPLE
+        New-UTCMSnapshot
+
+    .EXAMPLE
+        New-UTCMSnapshot -Preset ExchangeCore -DisplayName "Exchange Baseline"
+
+    .EXAMPLE
+        New-UTCMSnapshot -Resources 'microsoft.exchange.sharedmailbox','microsoft.exchange.transportrule'
+    #>
     [CmdletBinding(DefaultParameterSetName = 'Preset', SupportsShouldProcess = $true)]
     param(
         # How often to poll the job status
