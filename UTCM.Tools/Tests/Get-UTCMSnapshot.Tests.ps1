@@ -5,7 +5,7 @@ Describe "Get-UTCMSnapshot (GUID validation at binding)" {
     BeforeAll {
         Mock -ModuleName UTCM.Tools Ensure-GraphConnection {}
         Mock -ModuleName UTCM.Tools Invoke-GraphRequestWithRetry {
-            @{ id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; configurationItems = @(@{id='x'}) }
+            [pscustomobject]@{ id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; displayName='Test Snap'; createdDateTime='2026-01-01T00:00:00Z'; status='succeeded'; createdBy='user@contoso.com'; resources=@('microsoft.exchange.sharedmailbox'); tenantId='tenant-1'; configurationItems = @(@{id='x'}) }
         }
     }
 
@@ -13,8 +13,9 @@ Describe "Get-UTCMSnapshot (GUID validation at binding)" {
         { Get-UTCMSnapshot -SnapshotId 'not-a-guid' } | Should -Throw
     }
 
-    It "Returns snapshot object on valid GUID" {
+    It "Returns snapshot object with concise view on valid GUID" {
         $o = Get-UTCMSnapshot -SnapshotId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
-        $o.configurationItems.Count | Should -Be 1
+        $o.id | Should -Be 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+        $o.status | Should -Not -BeNullOrEmpty
     }
 }

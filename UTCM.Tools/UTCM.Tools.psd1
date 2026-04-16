@@ -1,6 +1,6 @@
 @{
     RootModule        = 'UTCM.Tools.psm1'
-    ModuleVersion     = '1.1.2'
+    ModuleVersion     = '1.2.0'
     GUID              = 'c8b6d337-2a88-4f7b-b7c0-3e5d21df310a'
     Author            = 'Tadd Axon (pragmaticscripts@tadda.ltd)'
     CompanyName       = 'tadda.org'
@@ -18,11 +18,16 @@
         'Get-UTCMAvailableSnapshot',
         'New-UTCMSnapshot',
         'Get-UTCMSnapshot',
+        'Remove-UTCMSnapshot',
         'Compare-UTCMConfiguration',
         'Export-UTCMSnapshot',
         'New-UTCMDriftReport',
         'Get-UTCMTenantDriftReport',
-        'Get-UTCMPreset'
+        'Get-UTCMPreset',
+        'Get-UTCMDrift',
+        'New-UTCMMonitor',
+        'Get-UTCMMonitor',
+        'Get-UTCMMonitoringResult'
     )
 
     PrivateData = @{

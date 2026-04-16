@@ -7,8 +7,11 @@ It enables:
 
 - Creating and retrieving **snapshots** of Microsoft 365 tenant configuration
 - Comparing snapshots to **current** configuration or to other snapshots
+- **Server-side drift monitoring** with automated periodic detection via configuration monitors
+- **Property-level drift details** showing current vs. desired values from the API
 - Detailed, sortable **HTML drift reports** and **CSV** exports
 - Exporting snapshots to **JSON**, **CSV**, and **HTML**
+- **Snapshot lifecycle management** including creation, listing, and deletion
 - Automation-friendly behavior with **bind-time validation**, **retry logic**, and **Pester tests**
 
 > :warning: **UTCM APIs are in public preview.** Configuration apply/restore is **not yet available**.
@@ -21,8 +24,17 @@ It enables:
 ### Graph Connection (interactive user)
 
 ```powershell
+# Full access (create snapshots, monitors, delete jobs)
 Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All"
+
+# Read-only access (list snapshots, view drifts, read monitors)
+Connect-MgGraph -Scopes "ConfigurationMonitoring.Read.All"
 ```
+
+> **New in v1.2.0:** `ConfigurationMonitoring.Read.All` is now supported as a least-privilege
+> scope for read-only operations (listing snapshots, viewing drifts, reading monitors).
+> Read-only cmdlets like `Get-UTCMDrift`, `Get-UTCMMonitor`, and `Get-UTCMMonitoringResult`
+> automatically use this scope when calling `Ensure-GraphConnection`.
 
 > **For setup / `Initialize-UTCM`:** you also need `Application.ReadWrite.All`,
 > `AppRoleAssignment.ReadWrite.All`, `Directory.ReadWrite.All`, and
@@ -105,9 +117,9 @@ Import-Module UTCM.Tools -Force
 Get-Command -Module UTCM.Tools
 ```
 
-Expected: 12 exported functions.
+Expected: 17 exported functions.
 
-All 12 functions include full comment-based help:
+All 17 functions include full comment-based help:
 
 ```powershell
 Get-Help New-UTCMSnapshot -Full
@@ -123,7 +135,7 @@ UTCM.Tools/
 +-- UTCM.Tools.psd1            # Module manifest
 +-- UTCM.Tools.psm1            # Root module (strict mode + loader)
 |
-+-- Public/                    # Exported functions (12)
++-- Public/                    # Exported functions (17)
 |   +-- Enable-UTCM.ps1
 |   +-- Grant-UTCMWorkloadAccess.ps1
 |   +-- Initialize-UTCM.ps1
@@ -131,11 +143,16 @@ UTCM.Tools/
 |   +-- Get-UTCMAvailableSnapshot.ps1
 |   +-- New-UTCMSnapshot.ps1
 |   +-- Get-UTCMSnapshot.ps1
+|   +-- Remove-UTCMSnapshot.ps1
 |   +-- Get-UTCMPreset.ps1
 |   +-- Compare-UTCMConfiguration.ps1
 |   +-- Export-UTCMSnapshot.ps1
 |   +-- New-UTCMDriftReport.ps1
 |   +-- Get-UTCMTenantDriftReport.ps1
+|   +-- Get-UTCMDrift.ps1
+|   +-- New-UTCMMonitor.ps1
+|   +-- Get-UTCMMonitor.ps1
+|   +-- Get-UTCMMonitoringResult.ps1
 |
 +-- Private/                   # Internal helpers (not exported)
 |   +-- Ensure-GraphConnection.ps1
@@ -156,10 +173,15 @@ UTCM.Tools/
     +-- Compare-UTCMConfiguration.Tests.ps1
     +-- Export-UTCMSnapshot.Tests.ps1
     +-- Get-UTCMAvailableSnapshot.Tests.ps1
+    +-- Get-UTCMDrift.Tests.ps1
+    +-- Get-UTCMMonitor.Tests.ps1
+    +-- Get-UTCMMonitoringResult.Tests.ps1
     +-- Get-UTCMSnapshot.Tests.ps1
     +-- Get-UTCMTenantDriftReport.Tests.ps1
     +-- New-UTCMDriftReport.Tests.ps1
+    +-- New-UTCMMonitor.Tests.ps1
     +-- New-UTCMSnapshot.Tests.ps1
+    +-- Remove-UTCMSnapshot.Tests.ps1
 ```
 
 ---
@@ -272,7 +294,9 @@ Available presets: `ExchangeCore`, `EntraCore`, `TeamsCore`, `IntuneCore`, `SecC
 
 ### `Get-UTCMAvailableSnapshot`
 
-Lists all available UTCM snapshot jobs.
+Lists all available UTCM snapshot jobs. Now returns enriched metadata including
+`createdBy` (who created the snapshot), `resources` (which resource types were included),
+and `tenantId`.
 
 ```powershell
 Get-UTCMAvailableSnapshot
@@ -442,6 +466,141 @@ Get-UTCMTenantDriftReport `
   -Dashboard `
   -OutputPath .\Reports `
   -NoPrompt
+```
+
+---
+
+### `Remove-UTCMSnapshot`
+
+Deletes a snapshot job and its associated artifact.
+
+```powershell
+Remove-UTCMSnapshot -SnapshotId <GUID>
+
+# Delete all failed snapshots
+Get-UTCMAvailableSnapshot -Status failed | ForEach-Object { Remove-UTCMSnapshot -SnapshotId $_.id }
+```
+
+> Requires `ConfigurationMonitoring.ReadWrite.All`. Has `ConfirmImpact = 'High'`; use `-Confirm:$false` to suppress.
+
+---
+
+### `Get-UTCMDrift`
+
+Queries the UTCM API for **server-side property-level drift data**. Returns granular information
+about which properties drifted from their desired baseline values, including `currentValue` and
+`desiredValue` for each property.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-MonitorId` | — | Filter drifts to a specific monitor GUID |
+| `-Status` | — | `active` or `fixed` |
+| `-ResourceType` | — | Filter by resource type (e.g., `microsoft.exchange.accepteddomain`) |
+| `-Top` | — | Limit to N most recent drifts |
+| `-IncludeDetails` | — | Include `driftedProperties` and `resourceInstanceIdentifier` |
+| `-AsJson` | — | Return as JSON string |
+
+```powershell
+# List all active drifts
+Get-UTCMDrift -Status active
+
+# Get full drift details with property-level changes
+Get-UTCMDrift -IncludeDetails
+
+# Drifts for a specific monitor
+Get-UTCMDrift -MonitorId <GUID> -IncludeDetails -AsJson
+
+# Filter by resource type
+Get-UTCMDrift -ResourceType 'microsoft.exchange.accepteddomain' -IncludeDetails
+```
+
+> Uses `ConfigurationMonitoring.Read.All` (least privilege). The `-IncludeDetails` switch
+> exposes `driftedProperties` (array of `propertyName`, `currentValue`, `desiredValue`)
+> and `resourceInstanceIdentifier` (helps identify exact resource instances).
+
+---
+
+### `New-UTCMMonitor`
+
+Creates a **configuration monitor** that runs automatically every 6 hours to detect drift
+from a defined baseline. Monitors are triggered at fixed GMT times: 6 AM, 12 PM, 6 PM, 12 AM.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-DisplayName` | *(mandatory)* | Friendly name for the monitor |
+| `-Description` | — | Optional description |
+| `-BaselineDisplayName` | `"{DisplayName} Baseline"` | Name for the baseline |
+| `-BaselineResources` | *(mandatory)* | Array of hashtables with `displayName`, `resourceType`, `properties` |
+| `-Parameters` | — | Optional key-value pairs for baseline parameters |
+
+```powershell
+$resources = @(
+    @{
+        displayName  = 'Accepted Domain'
+        resourceType = 'microsoft.exchange.accepteddomain'
+        properties   = @{
+            Identity   = 'contoso.onmicrosoft.com'
+            DomainType = 'InternalRelay'
+            Ensure     = 'Present'
+        }
+    },
+    @{
+        displayName  = 'TestSharedMailbox'
+        resourceType = 'microsoft.exchange.sharedmailbox'
+        properties   = @{
+            DisplayName = 'TestSharedMailbox'
+            Alias       = 'testSharedMailbox'
+            Ensure      = 'Present'
+        }
+    }
+)
+New-UTCMMonitor -DisplayName 'Exchange Monitor' -Description 'Monitor Exchange config' -BaselineResources $resources
+```
+
+> The monitor's baseline defines the **desired state** for each property. When the API
+> detects a property has a different value, it records a drift. Use `Get-UTCMDrift` to view.
+
+---
+
+### `Get-UTCMMonitor`
+
+Lists or retrieves configuration monitors.
+
+```powershell
+# List all monitors
+Get-UTCMMonitor
+
+# Get a specific monitor with its baseline
+Get-UTCMMonitor -MonitorId <GUID> -IncludeBaseline
+
+# Active monitors as JSON
+Get-UTCMMonitor -Status active -AsJson
+```
+
+---
+
+### `Get-UTCMMonitoringResult`
+
+Retrieves the history of monitor runs, including drift counts, run status, and errors.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-MonitorId` | — | Filter to a specific monitor GUID |
+| `-RunStatus` | — | `successful`, `partiallySuccessful`, or `failed` |
+| `-Since` | — | Only results after this datetime (UTC) |
+| `-Top` | — | Limit to N most recent results |
+| `-IncludeDetails` | — | Include `errorDetails` |
+| `-AsJson` | — | Return as JSON string |
+
+```powershell
+# All recent monitoring results
+Get-UTCMMonitoringResult
+
+# Failed runs in the last week with error details
+Get-UTCMMonitoringResult -RunStatus failed -Since (Get-Date).AddDays(-7) -IncludeDetails
+
+# Results for a specific monitor
+Get-UTCMMonitoringResult -MonitorId <GUID> -Top 10
 ```
 
 ---

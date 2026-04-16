@@ -10,17 +10,18 @@ Describe "New-UTCMSnapshot" {
             @{ id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }
         }
 
-        # Polling status (two inProgress then completed)
+        # Polling status (two running then succeeded)
         $script:pollCount = 0
         Mock -ModuleName UTCM.Tools Invoke-GraphRequestWithRetry -ParameterFilter { $Method -eq 'GET' -and $Uri -match 'snapshotJobs\/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' } {
             $script:pollCount++
-            if ($script:pollCount -lt 3) { return @{ status = 'inProgress' } }
-            else                         { return @{ status = 'completed' } }
+            if ($script:pollCount -lt 3) { return @{ id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; status = 'running' } }
+            else                         { return @{ id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; status = 'succeeded'; resourceLocation = 'https://graph.microsoft.com/beta/test' } }
         }
     }
 
-    It "Returns snapshot ID after completion" {
-        $id = New-UTCMSnapshot -PollingIntervalSeconds 1
-        $id | Should -Be 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    It "Returns snapshot job object after completion" {
+        $result = New-UTCMSnapshot -PollingIntervalSeconds 5
+        $result.id | Should -Be 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+        $result.status | Should -Be 'succeeded'
     }
 }

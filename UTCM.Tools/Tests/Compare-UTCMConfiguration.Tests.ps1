@@ -5,19 +5,26 @@ Describe "Compare-UTCMConfiguration (bind-time GUID validation)" {
     BeforeAll {
         Mock -ModuleName UTCM.Tools Ensure-GraphConnection {}
 
-        # Baseline snapshot
-        Mock -ModuleName UTCM.Tools Invoke-GraphRequestWithRetry -ParameterFilter { $Uri -match 'snapshotJobs\/00000000-0000-0000-0000-000000000000' } {
-            @{ configurationItems = @(
-                @{ id='1'; displayName='A'; type='caPolicy'; data=@{ prop='valueA' } }
-            )}
+        # Mock Get-UTCMSnapshot -IncludeItems (called internally by Compare-UTCMConfiguration)
+        Mock -ModuleName UTCM.Tools Get-UTCMSnapshot -ParameterFilter { $SnapshotId -eq '00000000-0000-0000-0000-000000000000' } {
+            [pscustomobject]@{
+                id = '00000000-0000-0000-0000-000000000000'
+                status = 'succeeded'
+                configurationItems = @(
+                    [pscustomobject]@{ id='1'; displayName='A'; type='caPolicy'; data=@{ prop='valueA' } }
+                )
+            }
         }
 
-        # Compare snapshot
-        Mock -ModuleName UTCM.Tools Invoke-GraphRequestWithRetry -ParameterFilter { $Uri -match 'snapshotJobs\/11111111-1111-1111-1111-111111111111' } {
-            @{ configurationItems = @(
-                @{ id='1'; displayName='A'; type='caPolicy'; data=@{ prop='valueA-changed' } },
-                @{ id='2'; displayName='B'; type='caPolicy'; data=@{ prop='new' } }
-            )}
+        Mock -ModuleName UTCM.Tools Get-UTCMSnapshot -ParameterFilter { $SnapshotId -eq '11111111-1111-1111-1111-111111111111' } {
+            [pscustomobject]@{
+                id = '11111111-1111-1111-1111-111111111111'
+                status = 'succeeded'
+                configurationItems = @(
+                    [pscustomobject]@{ id='1'; displayName='A'; type='caPolicy'; data=@{ prop='valueA-changed' } },
+                    [pscustomobject]@{ id='2'; displayName='B'; type='caPolicy'; data=@{ prop='new' } }
+                )
+            }
         }
     }
 

@@ -87,9 +87,9 @@ function Get-UTCMAvailableSnapshot {
         $selectList = $Select
     } else {
         if ($IncludeDetails -or $DownloadableOnly) {
-            $selectList = @('id','displayName','createdDateTime','status','resourceLocation','errorDetails')
+            $selectList = @('id','displayName','createdDateTime','status','resourceLocation','errorDetails','createdBy','resources','tenantId')
         } else {
-            $selectList = @('id','displayName','createdDateTime','status')
+            $selectList = @('id','displayName','createdDateTime','status','createdBy','resources','tenantId')
         }
     }
 
@@ -177,8 +177,8 @@ function Get-UTCMAvailableSnapshot {
 
     # Otherwise, present a friendly view
     if ($IncludeDetails -or $DownloadableOnly) {
-        return ($sorted | Select-Object id, displayName, createdDateTime, status, resourceLocation, errorDetails)
+        return ($sorted | Select-Object id, displayName, createdDateTime, status, resourceLocation, errorDetails, createdBy, resources, tenantId)
     } else {
-        return ($sorted | Select-Object id, displayName, createdDateTime, status)
+        return ($sorted | Select-Object id, displayName, createdDateTime, status, createdBy, resources, tenantId)
     }
 }

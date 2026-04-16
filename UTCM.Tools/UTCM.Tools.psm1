@@ -44,6 +44,15 @@ $script:SnapshotJobsUri = "$script:GraphBase/configurationSnapshotJobs"
 # Action endpoint to START a snapshot job (required for UTCM snapshot creation)
 $script:CreateSnapshotActionUri = "$script:GraphBase/configurationSnapshots/createSnapshot"
 
+# Configuration monitors collection (create/manage periodic drift monitors)
+$script:ConfigurationMonitorsUri = "$script:GraphBase/configurationMonitors"
+
+# Configuration drifts collection (server-side property-level drift results)
+$script:ConfigurationDriftsUri = "$script:GraphBase/configurationDrifts"
+
+# Configuration monitoring results collection (monitor run history)
+$script:MonitoringResultsUri = "$script:GraphBase/configurationMonitoringResults"
+
 # ---------------------------
 # JSON Preset & Allow-list support
 # ---------------------------
@@ -133,11 +142,16 @@ $publicFunctions = @(
     'Get-UTCMAvailableSnapshot',
     'New-UTCMSnapshot',
     'Get-UTCMSnapshot',
+    'Remove-UTCMSnapshot',
     'Compare-UTCMConfiguration',
     'Export-UTCMSnapshot',
     'New-UTCMDriftReport',
     'Get-UTCMTenantDriftReport',
-    'Get-UTCMPreset'             # new public helper to inspect presets
+    'Get-UTCMPreset',             # public helper to inspect presets
+    'Get-UTCMDrift',
+    'New-UTCMMonitor',
+    'Get-UTCMMonitor',
+    'Get-UTCMMonitoringResult'
 )
 
 # ---------------------------

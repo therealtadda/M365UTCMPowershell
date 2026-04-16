@@ -9,6 +9,8 @@
 
     "microsoft.exchange.sharedmailbox",
     "microsoft.exchange.transportrule",
+    "microsoft.exchange.accepteddomain",
+    "microsoft.exchange.mailcontact",
 
     "microsoft.teams.meetingpolicy",
     "microsoft.teams.messagingpolicy",

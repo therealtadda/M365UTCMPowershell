@@ -61,7 +61,7 @@ function Get-UTCMSnapshot {
     }
 
     # 1) Build $select to minimize payload from Graph
-    $select = @('id','displayName','description','createdDateTime','completedDateTime','status')
+    $select = @('id','displayName','description','createdDateTime','completedDateTime','status','createdBy','resources','tenantId')
     if ($IncludeDetails -or $IncludeItems) {
         $select += @('resourceLocation','errorDetails')
     }
@@ -125,7 +125,7 @@ function Get-UTCMSnapshot {
 
     # If caller didn’t ask for details/items, return a concise view (back-compat)
     if (-not $IncludeDetails -and -not $IncludeItems) {
-        return $job | Select-Object id, displayName, createdDateTime, status
+        return $job | Select-Object id, displayName, createdDateTime, status, createdBy, resources, tenantId
     }
 
     # If details requested, pass through the richer object
