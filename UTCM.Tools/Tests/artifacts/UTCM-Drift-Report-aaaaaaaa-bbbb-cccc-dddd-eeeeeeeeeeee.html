@@ -1,0 +1,108 @@
+<html>
+<head>
+<meta charset="utf-8">
+<title>UTCM Drift Report</title>
+<style>
+body { font-family: Arial, Helvetica, sans-serif; margin: 20px; }
+h2 { margin-bottom: 6px; }
+small { color: #666; }
+table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+th, td { padding: 8px; border: 1px solid #ccc; vertical-align: top; }
+th { background: #333; color: #fff; cursor: pointer; }
+tr:hover { filter: brightness(0.97); }
+.legend { margin-top: 10px; font-size: 12px; }
+.legend span { margin-right: 8px; }
+.page-break { page-break-before: always; margin-top: 40px; border-top: 2px solid #ccc; padding-top: 20px; }
+.nav { margin: 12px 0; font-size: 13px; }
+.nav a { margin-right: 16px; }
+.toggleBtn { font-size: 11px; padding: 2px 8px; cursor: pointer; }
+.detail pre { background: #f4f4f4; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow: auto; font-size: 12px; margin-top: 4px; }
+@media print { .page-break { page-break-before: always; } }
+</style>
+<script>
+function sortTableById(tableId, n) {
+  var table = document.getElementById(tableId);
+  var switching = true, dir = "asc";
+  while (switching) {
+    switching = false;
+    var rows = table.rows;
+    for (var i = 1; i < (rows.length - 1); i++) {
+      var x = rows[i].getElementsByTagName("TD")[n];
+      var y = rows[i + 1].getElementsByTagName("TD")[n];
+      if ((dir == "asc"  && x.textContent.toLowerCase() > y.textContent.toLowerCase()) ||
+          (dir == "desc" && x.textContent.toLowerCase() < y.textContent.toLowerCase())) {
+        rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+        switching = true; break;
+      }
+    }
+    if (!switching && dir == "asc") { dir = "desc"; switching = true; }
+  }
+}
+function toggleDetail(id) {
+  var el = document.getElementById(id);
+  var btn = el.parentElement.querySelector('.toggleBtn');
+  if (el.style.display === 'none') { el.style.display = 'block'; btn.textContent = 'Hide'; }
+  else { el.style.display = 'none'; btn.textContent = 'Show'; }
+}
+function expandAllIn(tableId) {
+  document.getElementById(tableId).querySelectorAll('.detail').forEach(function(el){ el.style.display='block'; el.parentElement.querySelector('.toggleBtn').textContent='Hide'; });
+}
+function collapseAllIn(tableId) {
+  document.getElementById(tableId).querySelectorAll('.detail').forEach(function(el){ el.style.display='none'; el.parentElement.querySelector('.toggleBtn').textContent='Show'; });
+}
+</script>
+</head>
+<body>
+  <div class="nav">
+    <a href="#drift-summary"><strong>Drift Summary</strong></a>
+    
+  </div>
+
+  <h2 id="drift-summary">UTCM Drift Report</h2>
+  <small>
+    Baseline Snapshot: Test Snapshot (aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee)
+    &nbsp; | &nbsp; Created: 2026-02-08 03:00:00
+    &nbsp; | &nbsp; Generated: 2026-04-16 17:42:16
+    <span>&nbsp; | &nbsp;</span><a href="https://graph.microsoft.com/beta/test" target="_blank" rel="noopener">Download baseline JSON</a>
+  </small>
+
+  <div class="legend" role="group" aria-label="Legend and Summary">
+  <span style="background:lightgreen;padding:4px 8px;border-radius:4px;display:inline-block;margin-right:8px">Added in Current: 1</span>
+  <span style="background:lightcoral;padding:4px 8px;border-radius:4px;display:inline-block;margin-right:8px">Missing in Current: 1</span>
+  <span style="background:khaki;padding:4px 8px;border-radius:4px;display:inline-block;margin-right:8px">Changed: 0</span>
+</div>
+
+  <p><button onclick="expandAllIn('drifttable')">Expand All</button> <button onclick="collapseAllIn('drifttable')">Collapse All</button></p>
+  <table id="drifttable" aria-label="UTCM Drift Report Table">
+    <thead>
+      <tr>
+        <th onclick="sortTableById('drifttable',0)">ID</th>
+        <th onclick="sortTableById('drifttable',1)">Display Name</th>
+        <th onclick="sortTableById('drifttable',2)">Type</th>
+        <th onclick="sortTableById('drifttable',3)">Drift Type</th>
+        <th>Settings</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style='background:lightgreen'>
+            <td>1</td>
+            <td>A</td>
+            <td>caPolicy</td>
+            <td>Added in Current</td>
+            <td><button class='toggleBtn' onclick="toggleDetail('ddce8aa024')">Show</button>
+                <div id='ddce8aa024' class='detail' style='display:none'><pre>{}</pre></div></td>
+        </tr>
+<tr style='background:lightcoral'>
+            <td>2</td>
+            <td>B</td>
+            <td>caPolicy</td>
+            <td>Missing in Current</td>
+            <td><button class='toggleBtn' onclick="toggleDetail('ddb035d788')">Show</button>
+                <div id='ddb035d788' class='detail' style='display:none'><pre>{}</pre></div></td>
+        </tr>
+    </tbody>
+  </table>
+
+  
+</body>
+</html>

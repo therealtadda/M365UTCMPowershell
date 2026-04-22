@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Public/**'
+      - 'Private/**'
+      - 'Tests/**'
+      - 'UTCM.Tools.psd1'
+      - 'UTCM.Tools.psm1'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Public/**'
+      - 'Private/**'
+      - 'Tests/**'
+      - 'UTCM.Tools.psd1'
+      - 'UTCM.Tools.psm1'
+      - '.github/workflows/ci.yml'
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PowerShell
+        uses: PowerShell/PowerShell-For-GitHub-Actions@v1
+        with:
+          pwsh-version: '7.4.x'
+
+      - name: Install test & lint modules
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -Scope CurrentUser -Force -MinimumVersion 5.5.0
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+
+      - name: Lint (PSScriptAnalyzer)
+        shell: pwsh
+        run: |
+          $sa = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Warning,Error -ExcludeRule PSAvoidUsingWriteHost
+          if ($sa) {
+            Write-Host "ScriptAnalyzer findings:"
+            $sa | Format-Table -AutoSize | Out-String | Write-Host
+            if ($sa | Where-Object Severity -eq 'Error') {
+              Write-Error "ScriptAnalyzer found rule violations."
+              exit 1
+            }
+          }
+
+      - name: Import module (sanity)
+        shell: pwsh
+        run: |
+          $module = Join-Path $PWD 'UTCM.Tools.psd1'
+          Import-Module $module -Force
+          Get-Command -Module UTCM.Tools
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          $TestResults = "TestResults"
+          New-Item -ItemType Directory -Path $TestResults -Force | Out-Null
+          $p = Invoke-Pester -Path ./Tests -CI -Output Detailed -PassThru
+          $p | ConvertTo-Json -Depth 5 | Out-File "$TestResults/pester-summary.json" -Encoding UTF8
+          if ($p.FailedCount -gt 0) {
+            Write-Error "One or more tests failed."
+            exit 1
+          }
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-results
+          path: |
+            TestResults/**
+          if-no-files-found: warn
