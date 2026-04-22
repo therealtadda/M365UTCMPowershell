@@ -32,7 +32,20 @@
 
     PrivateData = @{
         PSData = @{
-            Tags = @('UTCM','Microsoft365','GraphAPI','Drift','Snapshot','TenantConfig')
+            Tags         = @('UTCM','Microsoft365','GraphAPI','Drift','Snapshot','TenantConfig')
+            LicenseUri   = 'https://github.com/<owner>/<repo>/blob/main/LICENSE'
+            ProjectUri   = 'https://github.com/<owner>/<repo>'
+            # IconUri    = 'https://.../icon.png'
+            ReleaseNotes = @'
+1.2.0
+- Added server-side drift monitoring (New-UTCMMonitor, Get-UTCMMonitor, Get-UTCMMonitoringResult, Get-UTCMDrift)
+- Get-UTCMSnapshot -IncludeItems normalizes both 'configurationItems' and 'resources' payloads
+- Export-UTCMSnapshot CSV/HTML now include full per-resource configuration JSON (matches JSON export)
+- New-UTCMDriftReport: full-fidelity expandable details and NormalizedData in CSV
+- Added ConfigurationMonitoring.Read.All least-privilege scope for read-only cmdlets
+- Hardened idempotency when assigning Entra directory roles
+- Test-UTCMSetup resilient to Graph SDK object-shape differences
+'@
         }
     }
 }
