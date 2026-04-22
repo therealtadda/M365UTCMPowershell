@@ -10,8 +10,11 @@ Describe "Get-UTCMTenantDriftReport (orchestrator) with bind-time validation" {
         Mock -ModuleName UTCM.Tools New-UTCMSnapshot {
             [pscustomobject]@{ id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; status = 'succeeded'; resourceLocation = 'https://graph.microsoft.com/beta/test' }
         }
-        Mock -ModuleName UTCM.Tools Get-UTCMSnapshot {
-            [pscustomobject]@{ id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; displayName='Snap'; createdDateTime='2026-02-08T10:00:00Z'; status='succeeded'; configurationItems = @(@{id='1'; displayName='A'; type='x'; data=@{x=1}}) }
+        Mock -ModuleName UTCM.Tools Get-UTCMSnapshot -ParameterFilter { $SnapshotId -eq 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' } {
+            [pscustomobject]@{ id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; displayName='Snap'; createdDateTime='2026-02-08T10:00:00Z'; status='succeeded'; configurationItems = @([pscustomobject]@{id='1'; displayName='A'; type='x'; data=[pscustomobject]@{x=1}}) }
+        }
+        Mock -ModuleName UTCM.Tools Get-UTCMSnapshot -ParameterFilter { $SnapshotId -eq '11111111-1111-1111-1111-111111111111' } {
+            [pscustomobject]@{ id='11111111-1111-1111-1111-111111111111'; displayName='Snap2'; createdDateTime='2026-02-08T11:00:00Z'; status='succeeded'; configurationItems = @([pscustomobject]@{id='2'; displayName='B'; type='x'; data=[pscustomobject]@{x=2}}) }
         }
         Mock -ModuleName UTCM.Tools Get-UTCMCurrentStateSnapshot {
             [pscustomobject]@{ id='11111111-1111-1111-1111-111111111111'; status='succeeded'; configurationItems = @(@{id='2'; displayName='B'; type='x'; data=@{x=2}}) }

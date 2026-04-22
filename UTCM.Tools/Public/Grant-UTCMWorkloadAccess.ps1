@@ -194,6 +194,11 @@ Grant-UTCMWorkloadAccess -Workloads Exchange
                 New-MgDirectoryRoleMemberByRef -DirectoryRoleId $role.Id -BodyParameter $body -ErrorAction Stop
                 Write-Log -Color Green -Message "Assigned Entra directory role '$RoleDisplayName' to UTCM SP."
             } catch {
+                # Handle "already exists" error gracefully (member might have been added since the last check)
+                if ($_.Exception.Message -match 'added object references already exist|Request_BadRequest') {
+                    Write-Log -Color Gray -Message "Directory role '$RoleDisplayName' already assigned to UTCM SP."
+                    return
+                }
                 if ($_.Exception.Message -match 'Authorization_RequestDenied|Insufficient privileges') {
                     throw "Cannot assign Entra directory role '$RoleDisplayName': your Graph session lacks the 'RoleManagement.ReadWrite.Directory' scope. " +
                           "Reconnect with: Connect-MgGraph -Scopes 'RoleManagement.ReadWrite.Directory'  then retry."

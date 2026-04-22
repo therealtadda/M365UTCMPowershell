@@ -35,6 +35,9 @@ Set-StrictMode -Version Latest
 # Module-wide constants (UTCM Graph preview/beta)
 # ---------------------------
 
+# Guard for one-time argument completer registration
+$script:PresetCompleterRegistered = $false
+
 # Base for all UTCM endpoints (beta)
 $script:GraphBase = '/beta/admin/configurationManagement'
 

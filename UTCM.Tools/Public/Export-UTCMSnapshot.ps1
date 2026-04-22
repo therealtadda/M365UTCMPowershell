@@ -208,14 +208,43 @@ function Export-UTCMSnapshot {
             return $rawPath
         }
 
-        # Extract items
+        # Extract items. The UTCM snapshot payload uses 'resources' (with 'resourceType' /
+        # 'properties' fields); older/alternate payloads may expose 'configurationItems'
+        # (with 'type' / 'data' fields). Support both and normalize downstream.
         $items = $null
         if ($json.PSObject.Properties.Name -contains 'configurationItems') {
             $items = $json.configurationItems
+        } elseif ($json.PSObject.Properties.Name -contains 'resources') {
+            $items = $json.resources
         } elseif ($json -is [System.Collections.IEnumerable]) {
             $items = $json
         } else {
             $items = @($json)
+        }
+
+        # Local helpers that understand both field shapes
+        function _GetItemId($item) {
+            if ($item.PSObject.Properties.Name -contains 'id' -and $item.id) { return [string]$item.id }
+            if ($item.PSObject.Properties.Name -contains 'resourceInstanceIdentifier' -and $item.resourceInstanceIdentifier) { return [string]$item.resourceInstanceIdentifier }
+            # Prefer a stable Id from properties when available
+            if ($item.PSObject.Properties.Name -contains 'properties' -and $item.properties) {
+                foreach ($p in 'Id','Identity','Guid','ObjectId') {
+                    if ($item.properties.PSObject.Properties.Name -contains $p -and $item.properties.$p) {
+                        return [string]$item.properties.$p
+                    }
+                }
+            }
+            return ''
+        }
+        function _GetItemType($item) {
+            if ($item.PSObject.Properties.Name -contains 'resourceType' -and $item.resourceType) { return [string]$item.resourceType }
+            if ($item.PSObject.Properties.Name -contains 'type' -and $item.type) { return [string]$item.type }
+            return ''
+        }
+        function _GetItemDataObject($item) {
+            if ($item.PSObject.Properties.Name -contains 'properties') { return $item.properties }
+            if ($item.PSObject.Properties.Name -contains 'data') { return $item.data }
+            return $null
         }
 
         # --- SplitByResourceType (JSON only, existing behaviour) ---
@@ -240,7 +269,7 @@ function Export-UTCMSnapshot {
                         if ($cand) { $base = $cand; break }
                     }
                 }
-                if (-not $base) { $base = _Sanitize([string]$item.id) }
+                if (-not $base -and $item.PSObject.Properties.Name -contains 'id') { $base = _Sanitize([string]$item.id) }
                 if (-not $base) { $base = [guid]::NewGuid().Guid }
 
                 $subDir = Join-Path -Path $Path -ChildPath (Join-Path $safeWorkload $safeRt)
@@ -278,16 +307,15 @@ function Export-UTCMSnapshot {
         if ('CSV' -in $Format) {
             $csvPath = Join-Path -Path $Path -ChildPath ("$baseName.csv")
             $items | ForEach-Object {
-                $typeVal = if ($_.PSObject.Properties.Name -contains 'type') { $_.type }
-                           elseif ($_.PSObject.Properties.Name -contains 'resourceType') { $_.resourceType }
-                           else { $null }
-                $wl      = if ($_.PSObject.Properties.Name -contains 'workload') { $_.workload }
+                $typeVal = _GetItemType $_
+                $wl      = if ($_.PSObject.Properties.Name -contains 'workload' -and $_.workload) { [string]$_.workload }
                            else { _WorkloadFromResourceType $typeVal }
-                $dataStr = if ($_.PSObject.Properties.Name -contains 'data') {
-                               try { $_.data | ConvertTo-Json -Depth 20 -Compress } catch { [string]$_.data }
+                $dataObj = _GetItemDataObject $_
+                $dataStr = if ($null -ne $dataObj) {
+                               try { $dataObj | ConvertTo-Json -Depth 99 -Compress } catch { [string]$dataObj }
                            } else { '' }
                 [pscustomobject]@{
-                    Id          = $_.id
+                    Id          = _GetItemId $_
                     DisplayName = $_.displayName
                     Type        = $typeVal
                     Workload    = $wl
@@ -319,10 +347,9 @@ function Export-UTCMSnapshot {
             # Group items by workload for summary
             $groups = @{}
             foreach ($item in $items) {
-                $typeVal = if ($item.PSObject.Properties.Name -contains 'type') { $item.type }
-                           elseif ($item.PSObject.Properties.Name -contains 'resourceType') { $item.resourceType }
-                           else { 'unknown' }
-                $wl      = if ($item.PSObject.Properties.Name -contains 'workload') { $item.workload }
+                $typeVal = _GetItemType $item
+                if (-not $typeVal) { $typeVal = 'unknown' }
+                $wl      = if ($item.PSObject.Properties.Name -contains 'workload' -and $item.workload) { [string]$item.workload }
                            else { _WorkloadFromResourceType $typeVal }
                 if (-not $groups.ContainsKey($wl)) { $groups[$wl] = 0 }
                 $groups[$wl]++
@@ -333,18 +360,18 @@ function Export-UTCMSnapshot {
             }) -join ''
 
             $rowHtml = foreach ($item in $items) {
-                $typeVal = if ($item.PSObject.Properties.Name -contains 'type') { $item.type }
-                           elseif ($item.PSObject.Properties.Name -contains 'resourceType') { $item.resourceType }
-                           else { '' }
-                $wl      = if ($item.PSObject.Properties.Name -contains 'workload') { $item.workload }
+                $typeVal = _GetItemType $item
+                $wl      = if ($item.PSObject.Properties.Name -contains 'workload' -and $item.workload) { [string]$item.workload }
                            else { _WorkloadFromResourceType $typeVal }
+                $dataObj = _GetItemDataObject $item
                 $dataJson = ''
-                if ($item.PSObject.Properties.Name -contains 'data') {
-                    try { $dataJson = $item.data | ConvertTo-Json -Depth 20 } catch { $dataJson = [string]$item.data }
+                if ($null -ne $dataObj) {
+                    try { $dataJson = $dataObj | ConvertTo-Json -Depth 99 } catch { $dataJson = [string]$dataObj }
                 }
                 $rowIdx = [guid]::NewGuid().ToString('N').Substring(0,8)
+                $idVal  = _GetItemId $item
                 "<tr>
-                    <td>$(& $encodeFn $item.id)</td>
+                    <td>$(& $encodeFn $idVal)</td>
                     <td>$(& $encodeFn $item.displayName)</td>
                     <td>$(& $encodeFn $typeVal)</td>
                     <td>$(& $encodeFn $wl)</td>

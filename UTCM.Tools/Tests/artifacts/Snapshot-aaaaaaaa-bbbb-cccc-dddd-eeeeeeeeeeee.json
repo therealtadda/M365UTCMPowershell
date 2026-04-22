@@ -1,0 +1,8 @@
+{
+  "displayName": "TestItem",
+  "id": "1",
+  "type": "caPolicy",
+  "data": {
+    "x": "y"
+  }
+}

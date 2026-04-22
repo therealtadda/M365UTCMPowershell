@@ -4,6 +4,16 @@ Import-Module "$PSScriptRoot\..\UTCM.Tools.psd1" -Force
 Describe "New-UTCMDriftReport" {
     BeforeAll {
         Mock -ModuleName UTCM.Tools Write-Log {}
+        Mock -ModuleName UTCM.Tools Ensure-GraphConnection {}
+        Mock -ModuleName UTCM.Tools Get-UTCMSnapshot {
+            [pscustomobject]@{
+                id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+                displayName = 'Test Snapshot'
+                createdDateTime = '2026-02-08T10:00:00Z'
+                status = 'succeeded'
+                resourceLocation = 'https://graph.microsoft.com/beta/test'
+            }
+        }
 
         $outDir = Join-Path $PSScriptRoot 'artifacts'
         if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }

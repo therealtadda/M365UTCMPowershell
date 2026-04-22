@@ -43,9 +43,26 @@ PSCustomObject with properties:
             $appRoles += "$resName :: $roleValue"
         }
 
-        $dirRoles = (Get-MgServicePrincipalMemberOf -ServicePrincipalId $sp.Id -All |
-                     Where-Object { $_.'@odata.type' -eq '#microsoft.graph.directoryRole' } |
-                     ForEach-Object { $_.AdditionalProperties.displayName }) -join ', '
+        $memberOf = Get-MgServicePrincipalMemberOf -ServicePrincipalId $sp.Id -All
+        $dirRoleNames = foreach ($m in $memberOf) {
+            $odataType = $null
+            if ($m.PSObject.Properties.Match('@odata.type').Count -gt 0) {
+                $odataType = $m.'@odata.type'
+            } elseif ($m.PSObject.Properties.Match('OdataType').Count -gt 0) {
+                $odataType = $m.OdataType
+            } elseif ($m.AdditionalProperties -and $m.AdditionalProperties.ContainsKey('@odata.type')) {
+                $odataType = $m.AdditionalProperties['@odata.type']
+            }
+
+            if ($odataType -eq '#microsoft.graph.directoryRole') {
+                if ($m.PSObject.Properties.Match('DisplayName').Count -gt 0 -and $m.DisplayName) {
+                    $m.DisplayName
+                } elseif ($m.AdditionalProperties -and $m.AdditionalProperties.ContainsKey('displayName')) {
+                    [string]$m.AdditionalProperties['displayName']
+                }
+            }
+        }
+        $dirRoles = ($dirRoleNames | Sort-Object -Unique) -join ', '
 
         $summary = [PSCustomObject]@{
             UtcmsSpDisplayName = $sp.DisplayName
