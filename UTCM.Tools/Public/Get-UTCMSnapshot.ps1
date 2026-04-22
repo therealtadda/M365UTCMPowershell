@@ -100,18 +100,53 @@ function Get-UTCMSnapshot {
             $items = $null
             if ($json.PSObject.Properties.Name -contains 'configurationItems') {
                 $items = $json.configurationItems
+            } elseif ($json.PSObject.Properties.Name -contains 'resources') {
+                $items = $json.resources
             } elseif ($json -is [System.Collections.IEnumerable]) {
                 $items = $json
             } else {
-                throw "Artifact JSON does not contain 'configurationItems' and is not an array—cannot extract items."
+                throw "Artifact JSON does not contain 'configurationItems'/'resources' and is not an array\u2014cannot extract items."
             }
 
-            # Attach to returned object (add/overwrite configurationItems)
-            if ($job.PSObject.Properties.Name -contains 'configurationItems') {
-                $job.configurationItems = $items
-            } else {
-                Add-Member -InputObject $job -NotePropertyName configurationItems -NotePropertyValue $items -Force
+            # Normalize items so downstream consumers (Compare-UTCMConfiguration,
+            # New-UTCMDriftReport, Export-UTCMSnapshot) get a consistent shape with
+            # id/displayName/type/data regardless of the raw payload variant.
+            $normalizedItems = foreach ($it in $items) {
+                $idVal = $null
+                if ($it.PSObject.Properties.Name -contains 'id' -and $it.id) { $idVal = [string]$it.id }
+                elseif ($it.PSObject.Properties.Name -contains 'resourceInstanceIdentifier' -and $it.resourceInstanceIdentifier) { $idVal = [string]$it.resourceInstanceIdentifier }
+                elseif ($it.PSObject.Properties.Name -contains 'properties' -and $it.properties) {
+                    foreach ($p in 'Id','Identity','Guid','ObjectId') {
+                        if ($it.properties.PSObject.Properties.Name -contains $p -and $it.properties.$p) { $idVal = [string]$it.properties.$p; break }
+                    }
+                }
+
+                $typeVal = $null
+                if ($it.PSObject.Properties.Name -contains 'resourceType' -and $it.resourceType) { $typeVal = [string]$it.resourceType }
+                elseif ($it.PSObject.Properties.Name -contains 'type' -and $it.type) { $typeVal = [string]$it.type }
+
+                $dataVal = $null
+                if ($it.PSObject.Properties.Name -contains 'properties') { $dataVal = $it.properties }
+                elseif ($it.PSObject.Properties.Name -contains 'data') { $dataVal = $it.data }
+
+                $displayVal = $null
+                if ($it.PSObject.Properties.Name -contains 'displayName') { $displayVal = [string]$it.displayName }
+
+                [pscustomobject]@{
+                    id          = $idVal
+                    displayName = $displayVal
+                    type        = $typeVal
+                    data        = $dataVal
+                }
             }
+
+            # Attach both the normalized items and the raw payload for power users
+            if ($job.PSObject.Properties.Name -contains 'configurationItems') {
+                $job.configurationItems = $normalizedItems
+            } else {
+                Add-Member -InputObject $job -NotePropertyName configurationItems -NotePropertyValue $normalizedItems -Force
+            }
+            Add-Member -InputObject $job -NotePropertyName rawConfiguration -NotePropertyValue $json -Force
         }
         finally {
             if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }

@@ -319,6 +319,17 @@ Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems -AsJson
 
 > Use `-IncludeDetails` on `partiallySuccessful` snapshots to see per-resource error messages.
 
+**Item normalization:** `-IncludeItems` handles both UTCM payload shapes and returns a
+consistent `configurationItems` array where each item has `id`, `displayName`, `type`, and
+`data`. The original payload is also attached as `rawConfiguration` for power users.
+
+| Raw payload field | Normalized to |
+|---|---|
+| `resources[].resourceType` / `type` | `type` |
+| `resources[].properties` / `data` | `data` |
+| `id` / `resourceInstanceIdentifier` / `properties.Id\|Identity\|Guid\|ObjectId` | `id` |
+| `displayName` | `displayName` |
+
 ---
 
 ### `Get-UTCMPreset`
@@ -381,8 +392,10 @@ Export-UTCMSnapshot -Snapshot $snap -Path .\exports -SplitByResourceType
 
 **Output formats:**
 - **JSON** — `configurationItems` array (or full payload with `-Raw`)
-- **CSV** — Flat table: Id, DisplayName, Type, Workload, Data (JSON-compressed)
-- **HTML** — Self-contained sortable dashboard with workload summary badges and expandable per-item settings (Expand All / Collapse All)
+- **CSV** — One row per resource with `Id`, `DisplayName`, `Type`, `Workload`, and `Data` (full
+  configuration JSON, compact). Matches the JSON export in fidelity.
+- **HTML** — Self-contained sortable dashboard with workload summary badges and
+  expandable per-item settings showing the full configuration JSON (Expand All / Collapse All)
 
 ---
 
@@ -402,6 +415,9 @@ Generates a paginated HTML dashboard and CSV from a diff result.
 2. **Full Current State** — Every item from the current snapshot with expandable settings (shown when `-CurrentItems` is supplied)
 
 Both pages include sortable columns, Expand All / Collapse All buttons, and cross-page navigation links.
+The expandable per-row detail contains the full configuration JSON (same fidelity as
+`Export-UTCMSnapshot`), and the companion CSV's `NormalizedData` column carries the full
+normalized payload for each drifted row.
 
 ```powershell
 $diff = Compare-UTCMConfiguration -BaselineSnapshotId <GUID>
