@@ -58,13 +58,46 @@ function Get-UTCMCurrentStateSnapshot {
         $items = $null
         if ($json.PSObject.Properties.Name -contains 'configurationItems') {
             $items = $json.configurationItems
+        } elseif ($json.PSObject.Properties.Name -contains 'resources') {
+            $items = $json.resources
         } elseif ($json -is [System.Collections.IEnumerable]) {
             $items = $json
         } else {
-            throw "Downloaded artifact does not contain 'configurationItems' and is not an array."
+            throw "Downloaded artifact does not contain 'configurationItems'/'resources' and is not an array."
         }
 
-        Add-Member -InputObject $status -NotePropertyName configurationItems -NotePropertyValue $items -Force
+        # Normalize to id/displayName/type/data for downstream compare/report consumers
+        $normalizedItems = foreach ($it in $items) {
+            $idVal = $null
+            if ($it.PSObject.Properties.Name -contains 'id' -and $it.id) { $idVal = [string]$it.id }
+            elseif ($it.PSObject.Properties.Name -contains 'resourceInstanceIdentifier' -and $it.resourceInstanceIdentifier) { $idVal = [string]$it.resourceInstanceIdentifier }
+            elseif ($it.PSObject.Properties.Name -contains 'properties' -and $it.properties) {
+                foreach ($p in 'Id','Identity','Guid','ObjectId') {
+                    if ($it.properties.PSObject.Properties.Name -contains $p -and $it.properties.$p) { $idVal = [string]$it.properties.$p; break }
+                }
+            }
+
+            $typeVal = $null
+            if ($it.PSObject.Properties.Name -contains 'resourceType' -and $it.resourceType) { $typeVal = [string]$it.resourceType }
+            elseif ($it.PSObject.Properties.Name -contains 'type' -and $it.type) { $typeVal = [string]$it.type }
+
+            $dataVal = $null
+            if ($it.PSObject.Properties.Name -contains 'properties') { $dataVal = $it.properties }
+            elseif ($it.PSObject.Properties.Name -contains 'data') { $dataVal = $it.data }
+
+            $displayVal = $null
+            if ($it.PSObject.Properties.Name -contains 'displayName') { $displayVal = [string]$it.displayName }
+
+            [pscustomobject]@{
+                id          = $idVal
+                displayName = $displayVal
+                type        = $typeVal
+                data        = $dataVal
+            }
+        }
+
+        Add-Member -InputObject $status -NotePropertyName configurationItems -NotePropertyValue $normalizedItems -Force
+        Add-Member -InputObject $status -NotePropertyName rawConfiguration -NotePropertyValue $json -Force
     }
     finally {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue

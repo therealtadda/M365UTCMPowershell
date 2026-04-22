@@ -174,8 +174,10 @@ function New-UTCMDriftReport {
             $wl      = if ($item.PSObject.Properties.Name -contains 'workload') { $item.workload }
                        else { if ($typeVal -match '^microsoft\.([a-z0-9]+)') { $Matches[1] } else { 'unknown' } }
             $dataJson = ''
-            if ($item.PSObject.Properties.Name -contains 'data') {
-                try { $dataJson = $item.data | ConvertTo-Json -Depth 20 } catch { $dataJson = [string]$item.data }
+            if ($item.PSObject.Properties.Name -contains 'data' -and $item.data) {
+                try { $dataJson = $item.data | ConvertTo-Json -Depth 99 } catch { $dataJson = [string]$item.data }
+            } elseif ($item.PSObject.Properties.Name -contains 'properties' -and $item.properties) {
+                try { $dataJson = $item.properties | ConvertTo-Json -Depth 99 } catch { $dataJson = [string]$item.properties }
             }
             $csIdx = [guid]::NewGuid().ToString('N').Substring(0,8)
             "<tr>
