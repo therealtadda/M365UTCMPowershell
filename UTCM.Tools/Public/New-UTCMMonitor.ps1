@@ -31,6 +31,29 @@ function New-UTCMMonitor {
           - resourceType (string): UTCM resource type (e.g., microsoft.exchange.sharedmailbox)
           - properties (hashtable): key-value pairs of the desired configuration state
 
+    .PARAMETER SnapshotId
+        Alternative to -BaselineResources. GUID of an existing UTCM snapshot whose
+        captured configuration items will be converted into the baseline. Internally
+        fetches the snapshot via Get-UTCMSnapshot -IncludeItems and pipes its items
+        through ConvertTo-UTCMMonitorResource, applying any of the filtering
+        parameters below.
+
+    .PARAMETER ResourceType
+        When sourcing from -SnapshotId: optional resource-type allow-list used to
+        narrow the snapshot down to just the types you want to monitor.
+
+    .PARAMETER Identity
+        When sourcing from -SnapshotId: optional id allow-list (matched against the
+        normalized item id).
+
+    .PARAMETER IncludeProperty
+        When sourcing from -SnapshotId: optional property allow-list. Only these
+        property names are carried into each resource's baseline properties.
+
+    .PARAMETER ExcludeProperty
+        When sourcing from -SnapshotId: optional property deny-list, applied after
+        IncludeProperty.
+
     .PARAMETER Parameters
         Optional hashtable of key-value pairs that can be referenced in the baseline.
 
@@ -67,8 +90,21 @@ function New-UTCMMonitor {
             }
         )
         New-UTCMMonitor -DisplayName 'Domain Monitor' -Description 'Ensure domain stays present' -BaselineResources $resources
+
+    .EXAMPLE
+        # Build a monitor from an existing snapshot, filtered to a single resource type
+        New-UTCMMonitor -DisplayName 'Shared Mailbox Monitor' `
+            -SnapshotId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' `
+            -ResourceType microsoft.exchange.sharedmailbox
+
+    .EXAMPLE
+        # Build a monitor from a snapshot, keeping only specific properties
+        New-UTCMMonitor -DisplayName 'Domain Monitor' `
+            -SnapshotId $snapshotId `
+            -ResourceType microsoft.exchange.accepteddomain `
+            -IncludeProperty Identity,DomainType,Ensure
     #>
-    [CmdletBinding(SupportsShouldProcess = $true)]
+    [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = 'FromResources')]
     param(
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
@@ -80,9 +116,28 @@ function New-UTCMMonitor {
 
         [string] $BaselineDescription,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'FromResources')]
         [ValidateNotNullOrEmpty()]
         [hashtable[]] $BaselineResources,
+
+        [Parameter(Mandatory, ParameterSetName = 'FromSnapshot')]
+        [ValidateScript({
+            if (-not (Validate-Guid $_)) { throw "SnapshotId '$_' is not a valid GUID." }
+            $true
+        })]
+        [string] $SnapshotId,
+
+        [Parameter(ParameterSetName = 'FromSnapshot')]
+        [string[]] $ResourceType,
+
+        [Parameter(ParameterSetName = 'FromSnapshot')]
+        [string[]] $Identity,
+
+        [Parameter(ParameterSetName = 'FromSnapshot')]
+        [string[]] $IncludeProperty,
+
+        [Parameter(ParameterSetName = 'FromSnapshot')]
+        [string[]] $ExcludeProperty,
 
         [hashtable] $Parameters
     )
@@ -93,6 +148,25 @@ function New-UTCMMonitor {
 
     if (-not $BaselineDisplayName) {
         $BaselineDisplayName = "$DisplayName Baseline"
+    }
+
+    # If sourcing from a snapshot, materialize BaselineResources via the converter.
+    if ($PSCmdlet.ParameterSetName -eq 'FromSnapshot') {
+        if (-not (Get-Command -Name ConvertTo-UTCMMonitorResource -ErrorAction SilentlyContinue)) {
+            throw "ConvertTo-UTCMMonitorResource is not available; cannot build baseline from snapshot."
+        }
+
+        $convertParams = @{ SnapshotId = $SnapshotId }
+        if ($ResourceType)    { $convertParams['ResourceType']    = $ResourceType }
+        if ($Identity)        { $convertParams['Identity']        = $Identity }
+        if ($IncludeProperty) { $convertParams['IncludeProperty'] = $IncludeProperty }
+        if ($ExcludeProperty) { $convertParams['ExcludeProperty'] = $ExcludeProperty }
+
+        $BaselineResources = @(ConvertTo-UTCMMonitorResource @convertParams)
+
+        if (-not $BaselineResources -or $BaselineResources.Count -eq 0) {
+            throw ("Snapshot '{0}' produced no resources for the supplied filters; nothing to monitor." -f $SnapshotId)
+        }
     }
 
     # Build baseline resource objects

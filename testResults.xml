@@ -1,0 +1,136 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="31" errors="0" failures="0" not-run="0" inconclusive="0" ignored="0" skipped="0" invalid="0" date="2026-04-22" time="15:33:41">
+  <environment platform="Microsoft Windows 11 Business Insider Preview|C:\WINDOWS|\Device\Harddisk0\Partition3" nunit-version="2.5.8.0" os-version="10.0.26220" cwd="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell" user="TaddAxon" user-domain="AzureAD" machine-name="TADDAPRIME" clr-version="10.0.6" />
+  <culture-info current-culture="en-CA" current-uiculture="en-US" />
+  <test-suite type="TestFixture" name="Pester" executed="True" result="Success" success="True" time="19.6296" asserts="0" description="Pester">
+    <results>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Compare-UTCMConfiguration.Tests.ps1" executed="True" result="Success" success="True" time="1.4841" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Compare-UTCMConfiguration.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Compare-UTCMConfiguration (bind-time GUID validation)" executed="True" result="Success" success="True" time="0.6669" asserts="0" description="Compare-UTCMConfiguration (bind-time GUID validation)">
+            <results>
+              <test-case description="Throws early on invalid BaselineSnapshotId" name="Compare-UTCMConfiguration (bind-time GUID validation).Throws early on invalid BaselineSnapshotId" time="0.1843" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Throws early on invalid CompareSnapshotId" name="Compare-UTCMConfiguration (bind-time GUID validation).Throws early on invalid CompareSnapshotId" time="0.0394" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Detects drift between two valid snapshots" name="Compare-UTCMConfiguration (bind-time GUID validation).Detects drift between two valid snapshots" time="0.1946" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Export-UTCMSnapshot.Tests.ps1" executed="True" result="Success" success="True" time="0.3383" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Export-UTCMSnapshot.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Export-UTCMSnapshot" executed="True" result="Success" success="True" time="0.1763" asserts="0" description="Export-UTCMSnapshot">
+            <results>
+              <test-case description="Writes JSON file to specified path" name="Export-UTCMSnapshot.Writes JSON file to specified path" time="0.1387" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMAvailableSnapshot.Tests.ps1" executed="True" result="Success" success="True" time="0.2749" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMAvailableSnapshot.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Get-UTCMAvailableSnapshot" executed="True" result="Success" success="True" time="0.1361" asserts="0" description="Get-UTCMAvailableSnapshot">
+            <results>
+              <test-case description="Returns snapshots sorted by createdDateTime desc" name="Get-UTCMAvailableSnapshot.Returns snapshots sorted by createdDateTime desc" time="0.0865" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Can return JSON when -AsJson is used" name="Get-UTCMAvailableSnapshot.Can return JSON when -AsJson is used" time="0.0273" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMDrift.Tests.ps1" executed="True" result="Success" success="True" time="0.2708" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMDrift.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Get-UTCMDrift" executed="True" result="Success" success="True" time="0.1672" asserts="0" description="Get-UTCMDrift">
+            <results>
+              <test-case description="Returns drifts sorted by firstReportedDateTime descending" name="Get-UTCMDrift.Returns drifts sorted by firstReportedDateTime descending" time="0.0426" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Can filter by status" name="Get-UTCMDrift.Can filter by status" time="0.0489" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Returns JSON when -AsJson is used" name="Get-UTCMDrift.Returns JSON when -AsJson is used" time="0.0146" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Includes driftedProperties when -IncludeDetails is used" name="Get-UTCMDrift.Includes driftedProperties when -IncludeDetails is used" time="0.021" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Limits results with -Top" name="Get-UTCMDrift.Limits results with -Top" time="0.0172" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMMonitor.Tests.ps1" executed="True" result="Success" success="True" time="0.2524" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMMonitor.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Get-UTCMMonitor" executed="True" result="Success" success="True" time="0.1495" asserts="0" description="Get-UTCMMonitor">
+            <results>
+              <test-case description="Lists all monitors sorted by createdDateTime descending" name="Get-UTCMMonitor.Lists all monitors sorted by createdDateTime descending" time="0.062" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Returns a single monitor by ID" name="Get-UTCMMonitor.Returns a single monitor by ID" time="0.0482" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Returns JSON when -AsJson is used" name="Get-UTCMMonitor.Returns JSON when -AsJson is used" time="0.0142" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMMonitoringResult.Tests.ps1" executed="True" result="Success" success="True" time="0.2326" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMMonitoringResult.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Get-UTCMMonitoringResult" executed="True" result="Success" success="True" time="0.125" asserts="0" description="Get-UTCMMonitoringResult">
+            <results>
+              <test-case description="Returns monitoring results sorted by runInitiationDateTime descending" name="Get-UTCMMonitoringResult.Returns monitoring results sorted by runInitiationDateTime descending" time="0.0342" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Limits results with -Top" name="Get-UTCMMonitoringResult.Limits results with -Top" time="0.0192" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Returns JSON when -AsJson is used" name="Get-UTCMMonitoringResult.Returns JSON when -AsJson is used" time="0.0136" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Filters by monitor ID via URI" name="Get-UTCMMonitoringResult.Filters by monitor ID via URI" time="0.0332" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMSnapshot.Tests.ps1" executed="True" result="Success" success="True" time="0.1916" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMSnapshot.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Get-UTCMSnapshot (GUID validation at binding)" executed="True" result="Success" success="True" time="0.0927" asserts="0" description="Get-UTCMSnapshot (GUID validation at binding)">
+            <results>
+              <test-case description="Throws early on invalid SnapshotId" name="Get-UTCMSnapshot (GUID validation at binding).Throws early on invalid SnapshotId" time="0.0403" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Returns snapshot object with concise view on valid GUID" name="Get-UTCMSnapshot (GUID validation at binding).Returns snapshot object with concise view on valid GUID" time="0.0314" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMTenantDriftReport.Tests.ps1" executed="True" result="Success" success="True" time="0.4103" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Get-UTCMTenantDriftReport.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Get-UTCMTenantDriftReport (orchestrator) with bind-time validation" executed="True" result="Success" success="True" time="0.2824" asserts="0" description="Get-UTCMTenantDriftReport (orchestrator) with bind-time validation">
+            <results>
+              <test-case description="Throws early if invalid SnapshotId is passed" name="Get-UTCMTenantDriftReport (orchestrator) with bind-time validation.Throws early if invalid SnapshotId is passed" time="0.0458" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Runs end-to-end with -CreateSnapshot and returns diff (no prompt)" name="Get-UTCMTenantDriftReport (orchestrator) with bind-time validation.Runs end-to-end with -CreateSnapshot and returns diff (no prompt)" time="0.1434" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Throws when no snapshot and -NoPrompt set (no interactive selection)" name="Get-UTCMTenantDriftReport (orchestrator) with bind-time validation.Throws when no snapshot and -NoPrompt set (no interactive selection)" time="0.0534" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\New-UTCMDriftReport.Tests.ps1" executed="True" result="Success" success="True" time="0.2665" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\New-UTCMDriftReport.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="New-UTCMDriftReport" executed="True" result="Success" success="True" time="0.1718" asserts="0" description="New-UTCMDriftReport">
+            <results>
+              <test-case description="Creates HTML and CSV outputs" name="New-UTCMDriftReport.Creates HTML and CSV outputs" time="0.1413" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\New-UTCMMonitor.Tests.ps1" executed="True" result="Success" success="True" time="0.2497" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\New-UTCMMonitor.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="New-UTCMMonitor" executed="True" result="Success" success="True" time="0.1452" asserts="0" description="New-UTCMMonitor">
+            <results>
+              <test-case description="Creates a monitor and returns the result" name="New-UTCMMonitor.Creates a monitor and returns the result" time="0.0526" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Passes the correct body to the POST request" name="New-UTCMMonitor.Passes the correct body to the POST request" time="0.0418" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Rejects resources missing required keys" name="New-UTCMMonitor.Rejects resources missing required keys" time="0.0308" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\New-UTCMSnapshot.Tests.ps1" executed="True" result="Success" success="True" time="15.4064" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\New-UTCMSnapshot.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="New-UTCMSnapshot" executed="True" result="Success" success="True" time="15.2734" asserts="0" description="New-UTCMSnapshot">
+            <results>
+              <test-case description="Returns snapshot job object after completion" name="New-UTCMSnapshot.Returns snapshot job object after completion" time="15.2283" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+      <test-suite type="TestFixture" name="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Remove-UTCMSnapshot.Tests.ps1" executed="True" result="Success" success="True" time="0.2521" asserts="0" description="C:\Users\TaddAxon\OneDrive - Tadd Axon\code\M365UTCM\M365UTCMPowershell\UTCM.Tools\Tests\Remove-UTCMSnapshot.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Remove-UTCMSnapshot" executed="True" result="Success" success="True" time="0.1357" asserts="0" description="Remove-UTCMSnapshot">
+            <results>
+              <test-case description="Calls DELETE on the correct URI" name="Remove-UTCMSnapshot.Calls DELETE on the correct URI" time="0.0511" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Rejects an invalid GUID" name="Remove-UTCMSnapshot.Rejects an invalid GUID" time="0.0244" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Supports pipeline input via id property" name="Remove-UTCMSnapshot.Supports pipeline input via id property" time="0.0284" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+    </results>
+  </test-suite>
+</test-results>
