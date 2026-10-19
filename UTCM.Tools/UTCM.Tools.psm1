@@ -154,7 +154,8 @@ $publicFunctions = @(
     'Get-UTCMDrift',
     'New-UTCMMonitor',
     'Get-UTCMMonitor',
-    'Get-UTCMMonitoringResult'
+    'Get-UTCMMonitoringResult',
+    'ConvertTo-UTCMMonitorResource'
 )
 
 # ---------------------------

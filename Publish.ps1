@@ -161,20 +161,49 @@ if (-not $ApiKey) {
     throw "No API key provided. Pass -ApiKey or set `$env:PSGALLERY_API_KEY."
 }
 
-$publishParams = @{
-    Path        = $stageModule
-    NuGetApiKey = $ApiKey
-    Repository  = $Repository
-    Verbose     = $true
-}
-if ($Force)           { $publishParams.Force = $true }
-if ($AllowPrerelease) { $publishParams.AllowPrerelease = $true }
-
-if ($PSCmdlet.ShouldProcess(("{0} {1}" -f $stagedInfo.Name, $stagedInfo.Version), "Publish-Module to $Repository")) {
-    Publish-Module @publishParams
-    Write-Host ""
-    Write-Host ("Published {0} {1} to {2}." -f $stagedInfo.Name, $stagedInfo.Version, $Repository) -ForegroundColor Green
-    Write-Host "Verify with: Find-Module UTCM.Tools" -ForegroundColor Gray
+# Prefer Publish-PSResource (PSResourceGet / PowerShellGet v3). It uses modern NuGet
+# metadata and avoids the "<licenseUrl> element will be deprecated" warning that
+# legacy Publish-Module emits. Fall back to Publish-Module only if unavailable.
+$useV3 = $false
+if (Get-Command -Name Publish-PSResource -ErrorAction SilentlyContinue) {
+    $useV3 = $true
 } else {
-    Write-Host "Dry run: Publish-Module skipped. Staged artifact: $stageModule" -ForegroundColor Yellow
+    Write-Host "Microsoft.PowerShell.PSResourceGet not installed; attempting install for modern publishing..." -ForegroundColor Yellow
+    try {
+        Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser -Force -AllowClobber
+        Import-Module Microsoft.PowerShell.PSResourceGet -Force
+        if (Get-Command -Name Publish-PSResource -ErrorAction SilentlyContinue) { $useV3 = $true }
+    } catch {
+        Write-Host ("Falling back to legacy Publish-Module: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+    }
+}
+
+if ($PSCmdlet.ShouldProcess(("{0} {1}" -f $stagedInfo.Name, $stagedInfo.Version), "Publish to $Repository")) {
+    if ($useV3) {
+        $params = @{
+            Path        = $stageModule
+            ApiKey      = $ApiKey
+            Repository  = $Repository
+            Verbose     = $true
+        }
+        if ($Force) { $params.SkipModuleManifestValidate = $false } # no-op safety
+        Publish-PSResource @params
+    } else {
+        $params = @{
+            Path        = $stageModule
+            NuGetApiKey = $ApiKey
+            Repository  = $Repository
+            Verbose     = $true
+        }
+        if ($Force)           { $params.Force = $true }
+        if ($AllowPrerelease) { $params.AllowPrerelease = $true }
+        Publish-Module @params
+    }
+
+    Write-Host ""
+    Write-Host ("Published {0} {1} to {2} (via {3})." -f $stagedInfo.Name, $stagedInfo.Version, $Repository, ($(if ($useV3) { 'Publish-PSResource' } else { 'Publish-Module' }))) -ForegroundColor Green
+    Write-Host "Verify with: Find-PSResource UTCM.Tools  (or: Find-Module UTCM.Tools)" -ForegroundColor Gray
+} else {
+    Write-Host "Dry run: publish skipped. Staged artifact: $stageModule" -ForegroundColor Yellow
+    Write-Host ("Would publish via: {0}" -f ($(if ($useV3) { 'Publish-PSResource' } else { 'Publish-Module' }))) -ForegroundColor Gray
 }

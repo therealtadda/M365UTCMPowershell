@@ -117,9 +117,9 @@ Import-Module UTCM.Tools -Force
 Get-Command -Module UTCM.Tools
 ```
 
-Expected: 17 exported functions.
+Expected: 18 exported functions.
 
-All 17 functions include full comment-based help:
+All 18 functions include full comment-based help:
 
 ```powershell
 Get-Help New-UTCMSnapshot -Full
@@ -135,7 +135,7 @@ UTCM.Tools/
 +-- UTCM.Tools.psd1            # Module manifest
 +-- UTCM.Tools.psm1            # Root module (strict mode + loader)
 |
-+-- Public/                    # Exported functions (17)
++-- Public/                    # Exported functions (18)
 |   +-- Enable-UTCM.ps1
 |   +-- Grant-UTCMWorkloadAccess.ps1
 |   +-- Initialize-UTCM.ps1
@@ -153,6 +153,7 @@ UTCM.Tools/
 |   +-- New-UTCMMonitor.ps1
 |   +-- Get-UTCMMonitor.ps1
 |   +-- Get-UTCMMonitoringResult.ps1
+|   +-- ConvertTo-UTCMMonitorResource.ps1
 |
 +-- Private/                   # Internal helpers (not exported)
 |   +-- Ensure-GraphConnection.ps1
@@ -541,15 +542,29 @@ Get-UTCMDrift -ResourceType 'microsoft.exchange.accepteddomain' -IncludeDetails
 Creates a **configuration monitor** that runs automatically every 6 hours to detect drift
 from a defined baseline. Monitors are triggered at fixed GMT times: 6 AM, 12 PM, 6 PM, 12 AM.
 
+The baseline can be supplied two ways:
+
+- **`-BaselineResources`** — explicit hashtables (`FromResources` parameter set).
+- **`-SnapshotId`** — reuse an existing UTCM snapshot as the desired state
+  (`FromSnapshot` parameter set). Internally calls `Get-UTCMSnapshot -IncludeItems`
+  and pipes the items through `ConvertTo-UTCMMonitorResource`.
+
 | Parameter | Default | Description |
 |---|---|---|
 | `-DisplayName` | *(mandatory)* | Friendly name for the monitor |
 | `-Description` | — | Optional description |
 | `-BaselineDisplayName` | `"{DisplayName} Baseline"` | Name for the baseline |
-| `-BaselineResources` | *(mandatory)* | Array of hashtables with `displayName`, `resourceType`, `properties` |
+| `-BaselineDescription` | — | Optional description for the baseline |
+| `-BaselineResources` | *(mandatory in `FromResources`)* | Array of hashtables with `displayName`, `resourceType`, `properties` |
+| `-SnapshotId` | *(mandatory in `FromSnapshot`)* | GUID of a snapshot to convert into the baseline |
+| `-ResourceType` | — | (`FromSnapshot`) Resource-type allow-list |
+| `-Identity` | — | (`FromSnapshot`) Item-id allow-list |
+| `-IncludeProperty` | — | (`FromSnapshot`) Property allow-list per resource |
+| `-ExcludeProperty` | — | (`FromSnapshot`) Property deny-list per resource |
 | `-Parameters` | — | Optional key-value pairs for baseline parameters |
 
 ```powershell
+# Explicit baseline
 $resources = @(
     @{
         displayName  = 'Accepted Domain'
@@ -571,10 +586,61 @@ $resources = @(
     }
 )
 New-UTCMMonitor -DisplayName 'Exchange Monitor' -Description 'Monitor Exchange config' -BaselineResources $resources
+
+# Baseline sourced from an existing snapshot, filtered to one resource type
+New-UTCMMonitor -DisplayName 'Shared Mailbox Monitor' `
+    -SnapshotId <GUID> `
+    -ResourceType microsoft.exchange.sharedmailbox
+
+# Baseline from a snapshot, keeping only specific properties
+New-UTCMMonitor -DisplayName 'Domain Monitor' `
+    -SnapshotId <GUID> `
+    -ResourceType microsoft.exchange.accepteddomain `
+    -IncludeProperty Identity,DomainType,Ensure
 ```
 
 > The monitor's baseline defines the **desired state** for each property. When the API
 > detects a property has a different value, it records a drift. Use `Get-UTCMDrift` to view.
+
+---
+
+### `ConvertTo-UTCMMonitorResource`
+
+Converts UTCM snapshot items into the `BaselineResources` hashtables consumed by
+`New-UTCMMonitor`. Useful when you want to inspect or edit the converted resources
+before creating a monitor, or build a monitor directly from a snapshot in one pipeline.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-InputObject` | *(pipeline)* | A snapshot object (with `configurationItems`) or individual normalized items |
+| `-SnapshotId` | — | GUID to fetch a snapshot inline via `Get-UTCMSnapshot -IncludeItems` |
+| `-ResourceType` | — | Resource-type allow-list |
+| `-Identity` | — | Item-id allow-list |
+| `-IncludeProperty` | — | Property allow-list per resource |
+| `-ExcludeProperty` | — | Property deny-list (applied after `-IncludeProperty`) |
+| `-DisplayNameTemplate` | — | Template with `{displayName}`, `{id}`, `{type}` tokens |
+
+```powershell
+# Pipeline: snapshot -> resources -> monitor
+$resources = Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems |
+             ConvertTo-UTCMMonitorResource -ResourceType microsoft.exchange.sharedmailbox
+New-UTCMMonitor -DisplayName 'Shared Mailbox Monitor' -BaselineResources $resources
+
+# Direct: fetch + convert via SnapshotId
+ConvertTo-UTCMMonitorResource -SnapshotId <GUID> `
+    -ResourceType microsoft.exchange.accepteddomain `
+    -IncludeProperty Identity,DomainType,Ensure
+```
+
+Each emitted hashtable has the exact shape `New-UTCMMonitor -BaselineResources` expects:
+
+```powershell
+@{
+    displayName  = '<resource display name>'
+    resourceType = '<utcm resource type>'
+    properties   = @{ <key> = <value>; ... }
+}
+```
 
 ---
 

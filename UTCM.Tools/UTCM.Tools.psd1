@@ -33,7 +33,8 @@
         'Get-UTCMDrift',
         'New-UTCMMonitor',
         'Get-UTCMMonitor',
-        'Get-UTCMMonitoringResult'
+        'Get-UTCMMonitoringResult',
+        'ConvertTo-UTCMMonitorResource'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()
@@ -59,6 +60,10 @@
             LicenseUri = 'https://github.com/therealtadda/M365UTCMPowershell/blob/main/LICENSE'
             ProjectUri = 'https://github.com/therealtadda/M365UTCMPowershell'
             # IconUri  = 'https://raw.githubusercontent.com/therealtadda/M365UTCMPowershell/main/icon.png'
+
+            # Modern NuGet license metadata used by Publish-PSResource (PSResourceGet).
+            # Avoids the "<licenseUrl> will be deprecated" NuGet warning.
+            License    = 'BSD-3-Clause'
 
             ReleaseNotes = @'
 1.2.0
