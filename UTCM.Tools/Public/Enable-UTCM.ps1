@@ -5,13 +5,13 @@ Ensures the official Unified Tenant Configuration Management (UTCM) service prin
 
 .DESCRIPTION
 Creates the Microsoft-owned UTCM service principal (AppId 03b07b79-c5bc-4b5e-9bfa-13acf4a99998) if missing.
-Per Microsoft’s preview setup, creating the SP and assigning app roles requires Graph scopes:
+Per Microsoft’s UTCM setup, creating the SP and assigning app roles requires Graph scopes:
 Application.ReadWrite.All, AppRoleAssignment.ReadWrite.All, and Directory.ReadWrite.All.  # [1](https://learn.microsoft.com/en-us/graph/utcm-authentication-setup)
 #>
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact='Low')]
     param()
 
-    # Ensure Graph connection with the setup scopes required by Microsoft’s UTCM preview
+    # Ensure Graph connection with the setup scopes required by Microsoft’s UTCM setup
     Ensure-GraphConnection -Scopes @('Application.ReadWrite.All','AppRoleAssignment.ReadWrite.All','Directory.ReadWrite.All')  # [1](https://learn.microsoft.com/en-us/graph/utcm-authentication-setup)
 
     $utcmAppId = '03b07b79-c5bc-4b5e-9bfa-13acf4a99998'  # Official UTCM AppId  # [1](https://learn.microsoft.com/en-us/graph/utcm-authentication-setup)

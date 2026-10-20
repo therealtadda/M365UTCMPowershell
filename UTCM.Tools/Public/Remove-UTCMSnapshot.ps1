@@ -4,7 +4,7 @@ function Remove-UTCMSnapshot {
         Deletes a UTCM snapshot job by ID.
 
     .DESCRIPTION
-        Sends DELETE /beta/admin/configurationManagement/configurationSnapshotJobs/{id}
+        Sends DELETE /v1.0/admin/configurationManagement/configurationSnapshotJobs/{id}
         to permanently remove a snapshot job and its associated artifact.
 
     .PARAMETER SnapshotId

@@ -4,7 +4,7 @@ function Get-UTCMAvailableSnapshot {
         Lists available UTCM snapshot jobs from the tenant.
 
     .DESCRIPTION
-        Queries GET /beta/admin/configurationManagement/configurationSnapshotJobs with
+        Queries GET /v1.0/admin/configurationManagement/configurationSnapshotJobs with
         optional server-side OData filtering ($filter, $select) and client-side post-filters.
         Returns snapshot job metadata sorted by createdDateTime descending.
 
@@ -34,6 +34,9 @@ function Get-UTCMAvailableSnapshot {
 
     .PARAMETER DownloadableOnly
         Keep only jobs that have a non-empty resourceLocation.
+
+        Snapshot artifacts are retained for seven days. A tenant can keep up to
+        12 visible snapshot jobs and may extract up to 20,000 resources per month.
 
     .EXAMPLE
         Get-UTCMAvailableSnapshot

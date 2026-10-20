@@ -11,7 +11,8 @@ function Export-UTCMSnapshot {
         Output formats (all enabled by default — use -Format to choose a subset):
             JSON — configurationItems array (or full payload with -Raw)
             CSV  — flat table with Id, DisplayName, Type, Workload, Data columns
-            HTML — self-contained sortable dashboard of all configuration items
+            HTML — self-contained, searchable and filterable report of all configuration items (grouped by workload),
+                   with expandable per-item configuration JSON, column chooser and CSV/JSON downloads
 
         Path behaviour:
             Path is always treated as a DIRECTORY (created if missing).
@@ -326,140 +327,15 @@ function Export-UTCMSnapshot {
             $outPaths += $csvPath
         }
 
-        # HTML
+        # HTML (shared report foundation: self-contained, searchable, filterable, paged, accessible)
         if ('HTML' -in $Format) {
             $htmlPath = Join-Path -Path $Path -ChildPath ("$baseName.html")
-
-            # Safe HTML encoder
-            $encodeFn = if (Get-Command -Name HtmlEncode -ErrorAction SilentlyContinue) {
-                { param($v) HtmlEncode $v }
-            } else {
-                { param($v) if ($null -eq $v) { '' } else { [System.Net.WebUtility]::HtmlEncode([string]$v) } }
-            }
-
-            $snapshotName = ''
-            $createdStr   = ''
-            try {
-                if ($job.PSObject.Properties.Name -contains 'displayName') { $snapshotName = $job.displayName }
-                if ($job.PSObject.Properties.Name -contains 'createdDateTime') { $createdStr = (Get-Date $job.createdDateTime).ToString('yyyy-MM-dd HH:mm:ss') }
-            } catch {}
-
-            # Group items by workload for summary
-            $groups = @{}
-            foreach ($item in $items) {
-                $typeVal = _GetItemType $item
-                if (-not $typeVal) { $typeVal = 'unknown' }
-                $wl      = if ($item.PSObject.Properties.Name -contains 'workload' -and $item.workload) { [string]$item.workload }
-                           else { _WorkloadFromResourceType $typeVal }
-                if (-not $groups.ContainsKey($wl)) { $groups[$wl] = 0 }
-                $groups[$wl]++
-            }
-            $summarySpans = ($groups.GetEnumerator() | Sort-Object Name | ForEach-Object {
-                "<span style='background:#e0e0e0;padding:4px 8px;border-radius:4px;display:inline-block;margin:2px 4px'>" +
-                (& $encodeFn $_.Name) + ": $($_.Value)</span>"
-            }) -join ''
-
-            $rowHtml = foreach ($item in $items) {
-                $typeVal = _GetItemType $item
-                $wl      = if ($item.PSObject.Properties.Name -contains 'workload' -and $item.workload) { [string]$item.workload }
-                           else { _WorkloadFromResourceType $typeVal }
-                $dataObj = _GetItemDataObject $item
-                $dataJson = ''
-                if ($null -ne $dataObj) {
-                    try { $dataJson = $dataObj | ConvertTo-Json -Depth 99 } catch { $dataJson = [string]$dataObj }
-                }
-                $rowIdx = [guid]::NewGuid().ToString('N').Substring(0,8)
-                $idVal  = _GetItemId $item
-                "<tr>
-                    <td>$(& $encodeFn $idVal)</td>
-                    <td>$(& $encodeFn $item.displayName)</td>
-                    <td>$(& $encodeFn $typeVal)</td>
-                    <td>$(& $encodeFn $wl)</td>
-                    <td><button class='toggleBtn' onclick=""toggleDetail('d$rowIdx')"">Show</button>
-                        <div id='d$rowIdx' class='detail' style='display:none'><pre>$(& $encodeFn $dataJson)</pre></div></td>
-                </tr>"
-            }
-
-            $html = @"
-<html>
-<head>
-<meta charset="utf-8">
-<title>UTCM Snapshot Export</title>
-<style>
-body { font-family: Arial, Helvetica, sans-serif; margin: 20px; }
-h2 { margin-bottom: 6px; }
-small { color: #666; }
-table { border-collapse: collapse; width: 100%; margin-top: 10px; }
-th, td { padding: 8px; border: 1px solid #ccc; text-align: left; vertical-align: top; }
-th { background: #333; color: #fff; cursor: pointer; }
-tr:nth-child(even) { background: #f9f9f9; }
-tr:hover { background: #eef; }
-.summary { margin-top: 10px; font-size: 13px; }
-.toggleBtn { font-size: 11px; padding: 2px 8px; cursor: pointer; }
-.detail pre { background: #f4f4f4; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow: auto; font-size: 12px; margin-top: 4px; }
-</style>
-<script>
-function sortTable(n) {
-  var table = document.getElementById("snapTable");
-  var switching = true, dir = "asc";
-  while (switching) {
-    switching = false;
-    var rows = table.rows;
-    for (var i = 1; i < (rows.length - 1); i++) {
-      var x = rows[i].getElementsByTagName("TD")[n];
-      var y = rows[i + 1].getElementsByTagName("TD")[n];
-      if ((dir == "asc"  && x.textContent.toLowerCase() > y.textContent.toLowerCase()) ||
-          (dir == "desc" && x.textContent.toLowerCase() < y.textContent.toLowerCase())) {
-        rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
-        switching = true; break;
-      }
-    }
-    if (!switching && dir == "asc") { dir = "desc"; switching = true; }
-  }
-}
-function toggleDetail(id) {
-  var el = document.getElementById(id);
-  var btn = el.parentElement.querySelector('.toggleBtn');
-  if (el.style.display === 'none') { el.style.display = 'block'; btn.textContent = 'Hide'; }
-  else { el.style.display = 'none'; btn.textContent = 'Show'; }
-}
-function expandAll() {
-  document.querySelectorAll('.detail').forEach(function(el){ el.style.display='block'; el.parentElement.querySelector('.toggleBtn').textContent='Hide'; });
-}
-function collapseAll() {
-  document.querySelectorAll('.detail').forEach(function(el){ el.style.display='none'; el.parentElement.querySelector('.toggleBtn').textContent='Show'; });
-}
-</script>
-</head>
-<body>
-  <h2>UTCM Snapshot Export</h2>
-  <small>
-    Snapshot: $(& $encodeFn $snapshotName) ($(& $encodeFn $job.id))
-    &nbsp;|&nbsp; Created: $(& $encodeFn $createdStr)
-    &nbsp;|&nbsp; Status: $(& $encodeFn $job.status)
-    &nbsp;|&nbsp; Items: $($items.Count)
-    &nbsp;|&nbsp; Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-  </small>
-  <div class="summary">$summarySpans</div>
-  <p style="margin-top:8px"><button onclick="expandAll()">Expand All</button> <button onclick="collapseAll()">Collapse All</button></p>
-  <table id="snapTable">
-    <thead>
-      <tr>
-        <th onclick="sortTable(0)">ID</th>
-        <th onclick="sortTable(1)">Display Name</th>
-        <th onclick="sortTable(2)">Type</th>
-        <th onclick="sortTable(3)">Workload</th>
-        <th>Settings</th>
-      </tr>
-    </thead>
-    <tbody>
-      $($rowHtml -join "`n")
-    </tbody>
-  </table>
-</body>
-</html>
-"@
-            $html | Out-File -LiteralPath $htmlPath -Encoding UTF8
+            $html = Format-UTCMSnapshotReportHtml -Items $items `
+                -SnapshotName ([string](Get-UTCMObjectField $job @('displayName'))) -SnapshotId ([string]$job.id) `
+                -Created (Get-UTCMObjectField $job @('createdDateTime')) -Status ([string]$job.status) `
+                -GeneratedUtc ((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss') + ' UTC')
+            $fullHtmlPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($htmlPath)
+            [System.IO.File]::WriteAllText($fullHtmlPath, $html, (New-Object System.Text.UTF8Encoding($false)))
             _WriteLog ("HTML  -> $htmlPath") 'Green'
             $outPaths += $htmlPath
         }

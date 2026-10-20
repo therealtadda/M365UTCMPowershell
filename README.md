@@ -1,7 +1,7 @@
 # UTCM.Tools
 
 **UTCM.Tools** is a PowerShell 7+ module for working with Microsoft Graph's
-**Unified Tenant Configuration Management (UTCM)** public preview APIs.
+**Unified Tenant Configuration Management (UTCM)** APIs through Microsoft Graph.
 
 It enables:
 
@@ -9,12 +9,12 @@ It enables:
 - Comparing snapshots to **current** configuration or to other snapshots
 - **Server-side drift monitoring** with automated periodic detection via configuration monitors
 - **Property-level drift details** showing current vs. desired values from the API
-- Detailed, sortable **HTML drift reports** and **CSV** exports
-- Exporting snapshots to **JSON**, **CSV**, and **HTML**
+- Self-contained, accessible **HTML drift reports** (search, filters, paging, baseline-vs-current property comparison) and **CSV** exports
+- Exporting snapshots to **JSON**, **CSV**, and a searchable, filterable **HTML** report
 - **Snapshot lifecycle management** including creation, listing, and deletion
 - Automation-friendly behavior with **bind-time validation**, **retry logic**, and **Pester tests**
 
-> :warning: **UTCM APIs are in public preview.** Configuration apply/restore is **not yet available**.
+> Configuration apply/restore is not exposed by the UTCM API used by this module. The module provides snapshot, compare, monitor, and report workflows.
 > This module focuses solely on **read**, **compare**, and **report** workflows.
 
 ---
@@ -117,9 +117,9 @@ Import-Module UTCM.Tools -Force
 Get-Command -Module UTCM.Tools
 ```
 
-Expected: 18 exported functions.
+Expected: 20 exported functions.
 
-All 18 functions include full comment-based help:
+All 20 functions include full comment-based help:
 
 ```powershell
 Get-Help New-UTCMSnapshot -Full
@@ -135,7 +135,7 @@ UTCM.Tools/
 +-- UTCM.Tools.psd1            # Module manifest
 +-- UTCM.Tools.psm1            # Root module (strict mode + loader)
 |
-+-- Public/                    # Exported functions (18)
++-- Public/                    # Exported functions (20)
 |   +-- Enable-UTCM.ps1
 |   +-- Grant-UTCMWorkloadAccess.ps1
 |   +-- Initialize-UTCM.ps1
@@ -152,6 +152,8 @@ UTCM.Tools/
 |   +-- Get-UTCMDrift.ps1
 |   +-- New-UTCMMonitor.ps1
 |   +-- Get-UTCMMonitor.ps1
+|  +-- Update-UTCMMonitor.ps1
+|  +-- Remove-UTCMMonitor.ps1
 |   +-- Get-UTCMMonitoringResult.ps1
 |   +-- ConvertTo-UTCMMonitorResource.ps1
 |
@@ -164,6 +166,9 @@ UTCM.Tools/
 |   +-- Resolve-OutputPath.ps1
 |   +-- Validate-Guid.ps1
 |   +-- HtmlEncode.ps1
+|   +-- Report.Model.ps1         # Report data shaping (pairing, property diff, items)
+|   +-- Report.Html.ps1          # HTML builders, document shell, CSP hash
+|   +-- Report.Assets.ps1        # Shared CSS and client script
 |   +-- Write-Log.ps1
 |
 +-- Presets/                   # JSON-backed resource presets & allow-list
@@ -183,6 +188,10 @@ UTCM.Tools/
     +-- New-UTCMMonitor.Tests.ps1
     +-- New-UTCMSnapshot.Tests.ps1
     +-- Remove-UTCMSnapshot.Tests.ps1
+    +-- Report.Html.Tests.ps1
+    +-- Report.Model.Tests.ps1
+    +-- Report.Properties.Tests.ps1
+    +-- Update-UTCMMonitor.Tests.ps1
 ```
 
 ---
@@ -395,42 +404,79 @@ Export-UTCMSnapshot -Snapshot $snap -Path .\exports -SplitByResourceType
 - **JSON** — `configurationItems` array (or full payload with `-Raw`)
 - **CSV** — One row per resource with `Id`, `DisplayName`, `Type`, `Workload`, and `Data` (full
   configuration JSON, compact). Matches the JSON export in fidelity.
-- **HTML** — Self-contained sortable dashboard with workload summary badges and
-  expandable per-item settings showing the full configuration JSON (Expand All / Collapse All)
+- **HTML** — Self-contained report (see [HTML reports](#html-reports)): summary cards and workload distribution,
+  search across ID, name, type, workload **and property values**, workload/type filters, items grouped by
+  workload (or a flat paged view), column chooser, and expandable per-item configuration JSON. Empty snapshots
+  (for example a `partiallySuccessful` job with no data) show an explicit message.
 
 ---
 
 ### `New-UTCMDriftReport`
 
-Generates a paginated HTML dashboard and CSV from a diff result.
+Generates a self-contained HTML report and a CSV from a diff result.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `-Diff` | *(mandatory)* | Output from `Compare-UTCMConfiguration` |
+| `-Diff` | *(mandatory)* | Output from `Compare-UTCMConfiguration` (may be empty) |
 | `-SnapshotId` | *(mandatory)* | Baseline snapshot GUID (used in report title) |
 | `-OutputPath` | `.\` | Output directory |
-| `-CurrentItems` | — | Array of current-state `configurationItems` for full-state page |
+| `-CurrentItems` | — | Array of current-state `configurationItems` for the full-state section |
+| `-Open` | — | Open the HTML report in the default browser |
 
-**HTML output has two pages:**
-1. **Drift Summary** — Added, Removed, and Changed items with expandable normalised-data details per row
-2. **Full Current State** — Every item from the current snapshot with expandable settings (shown when `-CurrentItems` is supplied)
+**What the HTML report contains:**
+1. **Drift summary** — cards for *Resources with drift*, *Changed*, *Missing in current* and *Added in current*,
+   a workload and resource-type distribution, and a searchable, filterable, sortable, paged table.
+   A resource that was **modified** is reported **once as Changed**, with a **Property / Baseline / Current**
+   comparison; the full JSON is a secondary *Raw JSON* detail. If nothing drifted, the report says
+   **"No drift detected"**.
+2. **Full current state** — every item from the current snapshot (shown when `-CurrentItems` is supplied).
 
-Both pages include sortable columns, Expand All / Collapse All buttons, and cross-page navigation links.
-The expandable per-row detail contains the full configuration JSON (same fidelity as
-`Export-UTCMSnapshot`), and the companion CSV's `NormalizedData` column carries the full
-normalized payload for each drifted row.
+> **Counts:** `Compare-UTCMConfiguration` represents a modified resource as two rows (baseline and current).
+> The report pairs them, so `Added`, `Missing` and `Changed` count *resources*. The companion **CSV is
+> unchanged** and still has one row per diff row (`Id`, `DisplayName`, `Type`, `DriftType`, `NormalizedData`).
 
 ```powershell
 $diff = Compare-UTCMConfiguration -BaselineSnapshotId <GUID>
 New-UTCMDriftReport -Diff $diff -SnapshotId <GUID> -OutputPath .\Reports
 
-# Include full current state page
+# Include full current state
 $current = Get-UTCMSnapshot -SnapshotId <CURRENT_GUID> -IncludeItems
 New-UTCMDriftReport -Diff $diff -SnapshotId <GUID> -OutputPath .\Reports `
   -CurrentItems $current.configurationItems
 ```
 
 Returns a `PSCustomObject` with `HtmlPath`, `CsvPath`, `Added`, `Missing`, `Changed`, and `Opened` properties.
+
+---
+
+## HTML reports
+
+Both HTML outputs (`New-UTCMDriftReport`, `Export-UTCMSnapshot -Format HTML`) share one design.
+
+| Area | Behavior |
+|---|---|
+| **Self-contained** | One file. No libraries, CDN, fonts or network calls. A Content-Security-Policy pins the report's own script and style by hash and blocks everything else. |
+| **Find things** | Search (ID, name, type, workload and property values), status chips, workload and type filters, sorting, paging (25/50/100/250 rows), expand/collapse. |
+| **Read things** | Status is shown by icon **and** text **and** border style, never color alone. Light and dark themes follow the system setting. |
+| **Tools** | Column chooser, **Download** CSV/JSON (filtered or all), **Copy** buttons, **Copy link** (filters, sort and columns are kept in the URL after `#`). |
+| **Accessible** | Semantic tables, labelled controls, visible focus, keyboard operable, screen-reader result announcements, responsive down to 320 px, forced-colors support. |
+| **Print / PDF** | Toolbar and raw JSON are hidden; the current filter is printed; changed rows print a compact "property: old → new" summary. |
+| **Without JavaScript** | All rows and details are readable; search, filters and paging need JavaScript. |
+
+**Downloads from the report:** the drift CSV matches the CSV file the cmdlet writes. Snapshot CSV uses the same
+columns as the CSV export (`Id`, `DisplayName`, `Type`, `Workload`, `Data`); the JSON download contains the
+normalized `{ id, displayName, type, workload, data }` items.
+
+**Large snapshots:** measured on a developer laptop, a 5,000-item snapshot is about 4 MB and a 10,000-item
+snapshot about 8.5 MB (generation takes roughly 7 s per 10,000 items). Chromium-based browsers open them in
+under a second; Firefox takes about 3 s for 5,000 items and about 10 s for 10,000 items. Groups start collapsed
+above 500 items and rows are paged. For analysis at scale, prefer the CSV or JSON export.
+
+**Browser support:** current versions of Edge, Chrome and Firefox. Safari is supported on a best-effort basis
+(verified only with Playwright's WebKit build, not on macOS/iOS). Safari may log harmless Content-Security-Policy
+console messages for its native drop-down lists.
+
+**Privacy:** reports contain full tenant configuration. Treat them as confidential; the report header says so.
 
 ---
 
@@ -747,6 +793,8 @@ Install-Module Pester -Scope CurrentUser
 Import-Module .\UTCM.Tools\UTCM.Tools.psd1 -Force
 Invoke-Pester -Path .\UTCM.Tools\Tests -CI
 ```
+
+Tests write only to Pester's `$TestDrive`. An opt-in report performance test runs when `$env:UTCM_PERF` is set.
 
 ---
 

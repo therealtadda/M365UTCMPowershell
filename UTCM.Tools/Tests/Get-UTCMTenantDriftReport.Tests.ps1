@@ -8,7 +8,7 @@ Describe "Get-UTCMTenantDriftReport (orchestrator) with bind-time validation" {
             @([pscustomobject]@{ id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; displayName='Snap'; createdDateTime='2026-02-08T10:00:00Z'; status='succeeded'})
         }
         Mock -ModuleName UTCM.Tools New-UTCMSnapshot {
-            [pscustomobject]@{ id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; status = 'succeeded'; resourceLocation = 'https://graph.microsoft.com/beta/test' }
+            [pscustomobject]@{ id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; status = 'succeeded'; resourceLocation = 'https://graph.microsoft.com/v1.0/test' }
         }
         Mock -ModuleName UTCM.Tools Get-UTCMSnapshot -ParameterFilter { $SnapshotId -eq 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' } {
             [pscustomobject]@{ id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; displayName='Snap'; createdDateTime='2026-02-08T10:00:00Z'; status='succeeded'; configurationItems = @([pscustomobject]@{id='1'; displayName='A'; type='x'; data=[pscustomobject]@{x=1}}) }
@@ -43,5 +43,12 @@ Describe "Get-UTCMTenantDriftReport (orchestrator) with bind-time validation" {
 
     It "Throws when no snapshot and -NoPrompt set (no interactive selection)" {
         { Get-UTCMTenantDriftReport -NoPrompt } | Should -Throw
+    }
+
+    It "Still renders a report when the comparison finds no drift" {
+        Mock -ModuleName UTCM.Tools Compare-UTCMConfiguration { }
+        $res = Get-UTCMTenantDriftReport -SnapshotId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' -CompareToCurrent -Dashboard -NoPrompt
+        $res | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName UTCM.Tools New-UTCMDriftReport -Times 1 -ParameterFilter { @($Diff).Count -eq 0 }
     }
 }

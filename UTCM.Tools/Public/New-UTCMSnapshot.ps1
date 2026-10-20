@@ -10,6 +10,9 @@ function New-UTCMSnapshot {
 
         DisplayName is auto-sanitized to meet the API constraint (letters, numbers, and spaces only).
 
+        Snapshot artifacts are retained for seven days. A tenant can have up to 12
+        visible snapshot jobs and may extract up to 20,000 resources per month.
+
     .PARAMETER PollingIntervalSeconds
         Seconds between status polls while the job runs. Default: 10.
 
@@ -85,14 +88,14 @@ function New-UTCMSnapshot {
     }
 
     # --- Start the snapshot job (UTCM action endpoint) ---
-    # Correct endpoint: POST /beta/admin/configurationManagement/configurationSnapshots/createSnapshot
+    # Correct endpoint: POST /v1.0/admin/configurationManagement/configurationSnapshots/createSnapshot
     $job = Invoke-GraphRequestWithRetry -Method 'POST' -Uri $script:CreateSnapshotActionUri -Body $body
 
     # --- Poll until terminal status (notStarted|running -> succeeded|failed|partiallySuccessful) ---
     do {
         Start-Sleep -Seconds $PollingIntervalSeconds
 
-        # Job read endpoint: GET /beta/admin/configurationManagement/configurationSnapshotJobs/{id}
+        # Job read endpoint: GET /v1.0/admin/configurationManagement/configurationSnapshotJobs/{id}
         $status = Invoke-GraphRequestWithRetry -Method 'GET' -Uri "$($script:SnapshotJobsUri)/$($job.id)"
 
         if (Get-Command -Name Write-Log -ErrorAction SilentlyContinue) {

@@ -10,8 +10,8 @@ Describe "Get-UTCMAvailableSnapshot" {
         Mock -ModuleName UTCM.Tools Invoke-GraphRequestWithRetry {
             @{
                 value = @(
-                    @{ id='2'; displayName='Snap2'; createdDateTime='2026-02-08T10:00:00Z'; status='completed' },
-                    @{ id='1'; displayName='Snap1'; createdDateTime='2026-02-07T10:00:00Z'; status='completed' }
+                    @{ id='2'; displayName='Snap2'; createdDateTime='2026-02-08T10:00:00Z'; status='succeeded' },
+                    @{ id='1'; displayName='Snap1'; createdDateTime='2026-02-07T10:00:00Z'; status='succeeded' }
                 )
             }
         }

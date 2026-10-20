@@ -5,9 +5,13 @@ function New-UTCMMonitor {
 
     .DESCRIPTION
         Creates a configurationMonitor via
-        POST /beta/admin/configurationManagement/configurationMonitors.
+        POST /v1.0/admin/configurationManagement/configurationMonitors.
         Monitors run periodically (every 6 hours at fixed GMT times: 6 AM, 12 PM, 6 PM, 12 AM)
         and compare the current tenant configuration against the specified baseline.
+
+        A tenant may have up to 30 monitors and can monitor up to 800 configuration
+        resources per day across all monitors. Monitor updates are not permitted to
+        change the fixed six-hour frequency.
 
         The baseline defines which resources and property values to monitor. When a property
         drifts from its desired value, the API records a configurationDrift that can be

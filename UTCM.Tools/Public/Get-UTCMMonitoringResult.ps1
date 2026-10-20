@@ -4,7 +4,7 @@ function Get-UTCMMonitoringResult {
         Lists configuration monitoring results (monitor run history).
 
     .DESCRIPTION
-        Queries GET /beta/admin/configurationManagement/configurationMonitoringResults
+        Queries GET /v1.0/admin/configurationManagement/configurationMonitoringResults
         to retrieve the history of monitor runs, including drift counts, run status,
         and error details for each execution.
 

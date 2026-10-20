@@ -4,7 +4,7 @@
 #   - Get-UTCMPresetSearchPaths     (where to read JSON presets from)
 #   - Get-UTCMResourcePresets       (load + merge presets)
 #   - Resolve-UTCMResources         (resolve explicit list OR a preset)
-# Optional (warn-only validator, useful during preview):
+# Optional (warn-only validator for resource type allow-list coverage):
 #   - Get-UTCMAllowListPath
 #   - Test-UTCMResourceTypes
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ function Test-UTCMResourceTypes {
             if ($allowed.Count -gt 0) {
                 $invalid = $Resources | Where-Object { $_ -notin $allowed }
                 if ($invalid) {
-                    Write-Warning ("The following UTCM resource type(s) may not be supported in this preview: {0}" -f ($invalid -join ', '))
+                    Write-Warning ("The following UTCM resource type(s) may not be supported by the current allow-list: {0}" -f ($invalid -join ', '))
                     return $false
                 }
             }

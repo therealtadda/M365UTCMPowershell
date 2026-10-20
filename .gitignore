@@ -1,0 +1,2 @@
+# Test output (generated reports) must never be committed.
+UTCM.Tools/Tests/artifacts/

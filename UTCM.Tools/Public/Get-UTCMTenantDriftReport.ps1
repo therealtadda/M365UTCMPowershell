@@ -165,6 +165,7 @@ function Get-UTCMTenantDriftReport {
 
     # Optionally compare against the current state
     $diff = $null
+    $compared = $false
     if ($CompareToCurrent) {
         if (-not (Get-Command -Name Get-UTCMCurrentStateSnapshot -ErrorAction SilentlyContinue)) {
             throw "Get-UTCMCurrentStateSnapshot is not available in this module."
@@ -231,6 +232,7 @@ function Get-UTCMTenantDriftReport {
         $current = Get-UTCMCurrentStateSnapshot -Resources $compResources -PollingIntervalSeconds $PollingIntervalSeconds
 
         $diff = Compare-UTCMConfiguration -BaselineSnapshotId $SnapshotId -CompareSnapshotId $current.id
+        $compared = $true
 
         # Fetch current items for full-state page in the drift report
         $currentItems = $null
@@ -244,11 +246,11 @@ function Get-UTCMTenantDriftReport {
         }
     }
 
-    # Optional dashboard (render only if we have a diff)
-    if ($Dashboard -and -not $diff) {
+    # Optional dashboard. A comparison with no differences still renders (a "no drift" report).
+    if ($Dashboard -and -not $compared) {
         Write-Warning "No drift comparison was performed — nothing to render. Use -CompareToCurrent to generate a diff."
     }
-    if ($Dashboard -and $diff) {
+    if ($Dashboard -and $compared) {
         if (-not (Get-Command -Name Resolve-OutputPath -ErrorAction SilentlyContinue)) {
             throw "Resolve-OutputPath utility is not available. Ensure your Private helpers are loaded."
         }
@@ -259,7 +261,7 @@ function Get-UTCMTenantDriftReport {
         }
 
         $reportParams = @{
-            Diff       = $diff
+            Diff       = @($diff | Where-Object { $null -ne $_ })
             SnapshotId = $SnapshotId
             OutputPath = $resolved
         }

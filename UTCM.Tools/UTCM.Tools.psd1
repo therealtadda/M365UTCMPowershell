@@ -1,12 +1,12 @@
 @{
     # Core identity
     RootModule        = 'UTCM.Tools.psm1'
-    ModuleVersion     = '1.2.1'
+    ModuleVersion     = '1.4.0'
     GUID              = 'c8b6d337-2a88-4f7b-b7c0-3e5d21df310a'
     Author            = 'Tadd Axon'
     CompanyName       = 'tadda.org'
     Copyright         = '(c) 2026 Tadd Axon. All rights reserved.'
-    Description       = 'Unified Tenant Configuration Management (UTCM) tooling for Microsoft 365: create and retrieve configuration snapshots, compare snapshots to current tenant state, detect drift via server-side monitors, and export/report results as JSON, CSV, and HTML via the Microsoft Graph beta UTCM APIs.'
+    Description       = 'Unified Tenant Configuration Management (UTCM) tooling for Microsoft 365: create and retrieve configuration snapshots, compare snapshots to current tenant state, manage server-side monitors, and export/report results as JSON, CSV, and HTML via the Microsoft Graph UTCM APIs.'
 
     # Runtime requirements
     PowerShellVersion    = '7.0'
@@ -33,6 +33,8 @@
         'Get-UTCMDrift',
         'New-UTCMMonitor',
         'Get-UTCMMonitor',
+        'Update-UTCMMonitor',
+        'Remove-UTCMMonitor',
         'Get-UTCMMonitoringResult',
         'ConvertTo-UTCMMonitorResource'
     )
@@ -66,6 +68,29 @@
             License    = 'BSD-3-Clause'
 
             ReleaseNotes = @'
+1.4.0
+- Redesigned HTML reports (New-UTCMDriftReport and Export-UTCMSnapshot -Format HTML) on a shared, self-contained foundation:
+  summary cards, workload/type distribution, search (including property values), status/workload/type filters, sorting, paging,
+  column chooser, CSV/JSON downloads, copy buttons, shareable filter state in the URL hash, light/dark themes, responsive and print layouts.
+- Drift report: property-level Baseline / Current comparison for changed resources (full JSON remains as "Raw JSON"); a "Show only changed properties" toggle; the Full current state section is searchable and paged.
+- Snapshot report: items grouped by workload (collapsible) or a flat paged view; explicit empty state for snapshots with no items.
+- Accessibility: semantic tables, labelled controls, keyboard support, visible focus, status shown by icon, text and border style (not color alone), forced-colors support.
+- Security: every report ships a Content-Security-Policy that pins its own script and style by SHA-256 and blocks all network access; output is HTML-encoded in text and attribute contexts; only https links are emitted; no inline event handlers or style attributes.
+- CSV and JSON outputs are unchanged. Browser support: current Edge, Chrome and Firefox; Safari is best-effort.
+
+1.3.1
+- Drift report: a modified resource is now reported once as "Changed" (baseline and current shown pretty-printed) instead of as one "Missing" plus one "Added" row. The Added/Missing/Changed counts returned by New-UTCMDriftReport reflect this. CSV output is unchanged.
+- New-UTCMDriftReport accepts an empty -Diff, and Get-UTCMTenantDriftReport -Dashboard now writes a "No drift detected" report instead of warning when the comparison finds no differences.
+- HTML reports: sorting by a column can now end in ascending order; statuses show an icon and text in addition to color; added doctype, lang and viewport.
+- HtmlEncode no longer throws on null or empty input.
+- Test output now goes to TestDrive; Tests/artifacts is no longer tracked.
+
+1.3.0
+- Updated UTCM REST operations to Microsoft Graph v1.0 endpoints.
+- Added Update-UTCMMonitor and Remove-UTCMMonitor.
+- Added support for active and inactive monitor status filtering.
+- Updated UTCM documentation to distinguish GA configuration capabilities from module-supported workflows.
+
 1.2.0
 - Added server-side drift monitoring: New-UTCMMonitor, Get-UTCMMonitor, Get-UTCMMonitoringResult, Get-UTCMDrift.
 - Get-UTCMSnapshot -IncludeItems normalizes both `configurationItems` and `resources`/`properties` payloads to a consistent id/displayName/type/data shape; original artifact exposed as `rawConfiguration`.
@@ -76,7 +101,6 @@
 - Test-UTCMSetup resilient to Microsoft.Graph SDK object-shape differences.
 '@
 
-            # Prerelease = 'beta1'   # Uncomment for preview builds (e.g. 1.3.0-beta1)
             RequireLicenseAcceptance = $false
         }
     }

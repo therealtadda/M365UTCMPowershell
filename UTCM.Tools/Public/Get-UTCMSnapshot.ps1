@@ -5,7 +5,7 @@ function Get-UTCMSnapshot {
 
     .DESCRIPTION
         Fetches snapshot job metadata from
-        GET /beta/admin/configurationManagement/configurationSnapshotJobs/{id}.
+        GET /v1.0/admin/configurationManagement/configurationSnapshotJobs/{id}.
         Optionally includes errorDetails/resourceLocation (-IncludeDetails) or downloads
         the full configuration payload and attaches it as configurationItems (-IncludeItems).
 
@@ -83,6 +83,16 @@ function Get-UTCMSnapshot {
         }
         if (-not $job.resourceLocation -or [string]::IsNullOrWhiteSpace($job.resourceLocation)) {
             throw "Snapshot job '$($job.id)' does not expose resourceLocation; cannot retrieve items."
+        }
+
+        $snapshotDate = if ($job.completedDateTime) { $job.completedDateTime } else { $job.createdDateTime }
+        try {
+            $retentionDate = [datetimeoffset]::Parse([string]$snapshotDate, [cultureinfo]::InvariantCulture)
+            if ($retentionDate.UtcDateTime -lt [datetime]::UtcNow.AddDays(-7)) {
+                Write-Warning "Snapshot '$($job.id)' is older than the documented seven-day snapshot retention period and may no longer be downloadable."
+            }
+        } catch {
+            # Timestamp parsing is best effort; API status/resourceLocation remains authoritative.
         }
 
         # Download to temp, parse as JSON, attach configurationItems

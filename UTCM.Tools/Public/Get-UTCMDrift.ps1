@@ -4,9 +4,12 @@ function Get-UTCMDrift {
         Retrieves configuration drifts from the UTCM API.
 
     .DESCRIPTION
-        Queries GET /beta/admin/configurationManagement/configurationDrifts for
+        Queries GET /v1.0/admin/configurationManagement/configurationDrifts for
         server-side property-level drift data. Returns granular information about
         which properties drifted, their current vs. desired values, and the drift status.
+
+        Active drifts remain available while unresolved. Fixed drifts are retained
+        for 30 days after remediation.
 
         This is far more detailed than client-side snapshot comparison — the API provides
         per-property currentValue/desiredValue pairs and active/fixed status tracking.

@@ -4,6 +4,7 @@ function Invoke-GraphRequestWithRetry {
         [Parameter(Mandatory)][ValidateSet('GET','POST','PATCH','DELETE')][string]$Method,
         [Parameter(Mandatory)][string]$Uri,
         $Body = $null,
+        [hashtable]$Headers = @{},
         [int]$MaxRetries = 5
     )
 
@@ -15,9 +16,16 @@ function Invoke-GraphRequestWithRetry {
                 # Pass the body as a hashtable — let Invoke-MgGraphRequest handle JSON
                 # serialisation. Pre-serialising with ConvertTo-Json can cause double-
                 # encoding in some SDK versions.
+                if ($Headers.Count -gt 0) {
+                    return Invoke-MgGraphRequest -Method $Method -Uri $Uri `
+                        -Body $Body -ContentType 'application/json' -Headers $Headers
+                }
                 return Invoke-MgGraphRequest -Method $Method -Uri $Uri `
                     -Body $Body -ContentType 'application/json'
             } else {
+                if ($Headers.Count -gt 0) {
+                    return Invoke-MgGraphRequest -Method $Method -Uri $Uri -Headers $Headers
+                }
                 return Invoke-MgGraphRequest -Method $Method -Uri $Uri
             }
         } catch {

@@ -32,14 +32,14 @@
 Set-StrictMode -Version Latest
 
 # ---------------------------
-# Module-wide constants (UTCM Graph preview/beta)
+# Module-wide constants (UTCM Graph v1.0)
 # ---------------------------
 
 # Guard for one-time argument completer registration
 $script:PresetCompleterRegistered = $false
 
-# Base for all UTCM endpoints (beta)
-$script:GraphBase = '/beta/admin/configurationManagement'
+# Base for all UTCM endpoints (Microsoft Graph v1.0)
+$script:GraphBase = '/v1.0/admin/configurationManagement'
 
 # Snapshot jobs collection (used to GET/POLL jobs and list them)
 $script:SnapshotJobsUri = "$script:GraphBase/configurationSnapshotJobs"
@@ -154,6 +154,8 @@ $publicFunctions = @(
     'Get-UTCMDrift',
     'New-UTCMMonitor',
     'Get-UTCMMonitor',
+    'Update-UTCMMonitor',
+    'Remove-UTCMMonitor',
     'Get-UTCMMonitoringResult',
     'ConvertTo-UTCMMonitorResource'
 )
