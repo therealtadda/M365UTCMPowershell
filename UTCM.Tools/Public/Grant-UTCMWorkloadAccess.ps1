@@ -7,6 +7,9 @@ Grants the UTCM service principal the minimum rights needed to READ tenant confi
 Assigns Graph app roles plus — for Exchange-backed workloads — Exchange Online RBAC management role
 assignments scoped exclusively to the UTCM service principal.  No tenant-wide Entra directory roles are used for Exchange or S&C workloads.
 Teams requires the Global Reader Entra directory role (per official UTCM Teams resource docs).
+Prompts before granting the selected workload permissions. -WhatIf does not connect or make changes.
+The delegated setup scopes are Application.ReadWrite.All (also permits creating a missing UTCM
+principal) and AppRoleAssignment.ReadWrite.All, plus RoleManagement.ReadWrite.Directory for Teams.
 
 Permission strategy per workload:
 
@@ -53,19 +56,24 @@ Grant-UTCMWorkloadAccess -Workloads Entra,Exchange,Intune -Verbose
 # Grant only Exchange (includes EXO RBAC setup — requires ExchangeOnlineManagement module)
 Grant-UTCMWorkloadAccess -Workloads Exchange
 #>
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact='Medium')]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact='High')]
     param(
         [ValidateSet('Entra','Exchange','Intune','SecurityAndCompliance','Teams')]
         [string[]]$Workloads = @('Entra','Exchange','Intune','SecurityAndCompliance','Teams')
     )
 
-    # Ensure Graph connection for app-role assignments
-    Ensure-GraphConnection -Scopes @('Application.ReadWrite.All','AppRoleAssignment.ReadWrite.All','Directory.ReadWrite.All')  # [1]
+    $action = 'Grant workload app roles and applicable Exchange RBAC permissions'
+    if ('Teams' -in $Workloads) { $action += ' and the Entra Global Reader role' }
+    if (-not $PSCmdlet.ShouldProcess("UTCM service principal; workloads: $($Workloads -join ', ')", $action)) { return }
+
+    $scopes = @('Application.ReadWrite.All','AppRoleAssignment.ReadWrite.All')
+    if ('Teams' -in $Workloads) { $scopes += 'RoleManagement.ReadWrite.Directory' }
+    Ensure-GraphConnection -Scopes $scopes
 
     $utcmAppId = '03b07b79-c5bc-4b5e-9bfa-13acf4a99998'  # Official UTCM AppId  [1]
     try {
         $utcm = Get-MgServicePrincipal -Filter "appId eq '$utcmAppId'" -All -ErrorAction Stop
-        if (-not $utcm) { $utcm = Enable-UTCM }
+        if (-not $utcm) { $utcm = Enable-UTCM -Confirm:$false }
     } catch {
         Write-Log -Color Red -Message "Unable to resolve UTCM SP: $($_.Exception.Message)"
         throw
@@ -85,7 +93,7 @@ Grant-UTCMWorkloadAccess -Workloads Exchange
             $role       = $resourceSp.AppRoles | Where-Object { $_.Value -eq $RoleValue -and $_.AllowedMemberTypes -contains 'Application' -and $_.IsEnabled }
             if (-not $role) { throw "Role '$RoleValue' not found on resource AppId $ResourceAppId." }
 
-            $exists = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $PrincipalObjectId -All |
+            $exists = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $PrincipalObjectId -All -ErrorAction Stop |
                       Where-Object { $_.ResourceId -eq $resourceSp.Id -and $_.AppRoleId -eq $role.Id }
 
             if ($exists) {
@@ -93,11 +101,9 @@ Grant-UTCMWorkloadAccess -Workloads Exchange
                 return
             }
 
-            if ($PSCmdlet.ShouldProcess("SP:$PrincipalObjectId", "Grant role '$RoleValue' on '$($resourceSp.DisplayName)'")) {
-                $body = @{ PrincipalId = $PrincipalObjectId; ResourceId = $resourceSp.Id; AppRoleId = $role.Id }
-                New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $PrincipalObjectId -BodyParameter $body -ErrorAction Stop | Out-Null
-                Write-Log -Color Green -Message "Granted '$RoleValue' on '$($resourceSp.DisplayName)'."
-            }
+            $body = @{ PrincipalId = $PrincipalObjectId; ResourceId = $resourceSp.Id; AppRoleId = $role.Id }
+            New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $PrincipalObjectId -BodyParameter $body -ErrorAction Stop | Out-Null
+            Write-Log -Color Green -Message "Granted '$RoleValue' on '$($resourceSp.DisplayName)'."
         } catch {
             Write-Log -Color Red -Message "Granting app role '$RoleValue' failed: $($_.Exception.Message)"
             throw
@@ -142,11 +148,9 @@ Grant-UTCMWorkloadAccess -Workloads Exchange
             $exoSp = Get-ServicePrincipal -Identity $AppId -ErrorAction Stop
             Write-Log -Color Gray -Message "EXO service principal already registered: $($exoSp.DisplayName)"
         } catch {
-            if ($PSCmdlet.ShouldProcess("AppId:$AppId", "Register service principal in Exchange Online")) {
-                Write-Log -Color Cyan -Message "Registering UTCM service principal in Exchange Online..."
-                $exoSp = New-ServicePrincipal -AppId $AppId -ObjectId $ObjectId -DisplayName $DisplayName -ErrorAction Stop
-                Write-Log -Color Green -Message "Registered EXO service principal: $($exoSp.DisplayName)"
-            }
+            Write-Log -Color Cyan -Message "Registering UTCM service principal in Exchange Online..."
+            $exoSp = New-ServicePrincipal -AppId $AppId -ObjectId $ObjectId -DisplayName $DisplayName -ErrorAction Stop
+            Write-Log -Color Green -Message "Registered EXO service principal: $($exoSp.DisplayName)"
         }
 
         # Assign each management role (idempotent — skip if already assigned)
@@ -162,10 +166,8 @@ Grant-UTCMWorkloadAccess -Workloads Exchange
                 continue
             }
 
-            if ($PSCmdlet.ShouldProcess("SP:$ObjectId", "Assign EXO management role '$roleName'")) {
-                New-ManagementRoleAssignment -Name $assignmentName -Role $roleName -App $ObjectId -ErrorAction Stop | Out-Null
-                Write-Log -Color Green -Message "Assigned EXO management role '$roleName' to UTCM SP."
-            }
+            New-ManagementRoleAssignment -Name $assignmentName -Role $roleName -App $ObjectId -ErrorAction Stop | Out-Null
+            Write-Log -Color Green -Message "Assigned EXO management role '$roleName' to UTCM SP."
         }
     }
 
@@ -173,38 +175,38 @@ Grant-UTCMWorkloadAccess -Workloads Exchange
     function _Ensure-DirectoryRoleMember {
         param([string]$RoleDisplayName, [string]$PrincipalObjectId)
 
-        $role = Get-MgDirectoryRole -Filter "displayName eq '$RoleDisplayName'" -ErrorAction SilentlyContinue
+        $role = Get-MgDirectoryRole -Filter "displayName eq '$RoleDisplayName'" -ErrorAction Stop
         if (-not $role) {
             # Activate from template if not yet instantiated
-            $tmpl = Get-MgDirectoryRoleTemplate -All | Where-Object { $_.DisplayName -eq $RoleDisplayName }
+            $tmpl = Get-MgDirectoryRoleTemplate -All -ErrorAction Stop | Where-Object { $_.DisplayName -eq $RoleDisplayName }
             if (-not $tmpl) { throw "Directory role template '$RoleDisplayName' not found." }
             $role = New-MgDirectoryRole -BodyParameter @{ roleTemplateId = $tmpl.Id } -ErrorAction Stop
         }
 
-        $existing = Get-MgDirectoryRoleMember -DirectoryRoleId $role.Id -All |
+        $existing = Get-MgDirectoryRoleMember -DirectoryRoleId $role.Id -All -ErrorAction Stop |
                     Where-Object { $_.Id -eq $PrincipalObjectId }
         if ($existing) {
             Write-Log -Color Gray -Message "Directory role '$RoleDisplayName' already assigned to UTCM SP."
             return
         }
 
-        if ($PSCmdlet.ShouldProcess("SP:$PrincipalObjectId", "Assign Entra directory role '$RoleDisplayName'")) {
-            $body = @{ '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$PrincipalObjectId" }
-            try {
-                New-MgDirectoryRoleMemberByRef -DirectoryRoleId $role.Id -BodyParameter $body -ErrorAction Stop
-                Write-Log -Color Green -Message "Assigned Entra directory role '$RoleDisplayName' to UTCM SP."
-            } catch {
-                # Handle "already exists" error gracefully (member might have been added since the last check)
-                if ($_.Exception.Message -match 'added object references already exist|Request_BadRequest') {
+        $body = @{ '@odata.id' = "$(Resolve-UTCMGraphUri '/v1.0/directoryObjects/')$PrincipalObjectId" }
+        try {
+            New-MgDirectoryRoleMemberByRef -DirectoryRoleId $role.Id -BodyParameter $body -ErrorAction Stop
+            Write-Log -Color Green -Message "Assigned Entra directory role '$RoleDisplayName' to UTCM SP."
+        } catch {
+            if ($_.Exception.Message -match 'added object references already exist|Request_BadRequest') {
+                $verified = Get-MgDirectoryRoleMember -DirectoryRoleId $role.Id -All -ErrorAction Stop |
+                    Where-Object { $_.Id -eq $PrincipalObjectId }
+                if ($verified) {
                     Write-Log -Color Gray -Message "Directory role '$RoleDisplayName' already assigned to UTCM SP."
                     return
                 }
-                if ($_.Exception.Message -match 'Authorization_RequestDenied|Insufficient privileges') {
-                    throw "Cannot assign Entra directory role '$RoleDisplayName': your Graph session lacks the 'RoleManagement.ReadWrite.Directory' scope. " +
-                          "Reconnect with: Connect-MgGraph -Scopes 'RoleManagement.ReadWrite.Directory'  then retry."
-                }
-                throw
             }
+            if ($_.Exception.Message -match 'Authorization_RequestDenied|Insufficient privileges') {
+                throw "Cannot assign Entra directory role '$RoleDisplayName': verify the RoleManagement.ReadWrite.Directory permission and a supported administrator role (such as Privileged Role Administrator). $($_.Exception.Message)"
+            }
+            throw
         }
     }
 

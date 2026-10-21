@@ -34,12 +34,20 @@ Connect-MgGraph -Scopes "ConfigurationMonitoring.Read.All"
 > **New in v1.2.0:** `ConfigurationMonitoring.Read.All` is now supported as a least-privilege
 > scope for read-only operations (listing snapshots, viewing drifts, reading monitors).
 > Read-only cmdlets like `Get-UTCMDrift`, `Get-UTCMMonitor`, and `Get-UTCMMonitoringResult`
-> automatically use this scope when calling `Ensure-GraphConnection`.
+> automatically use this scope, as do snapshot listing/retrieval/export and comparisons of
+> existing snapshots. Creating a current-state comparison snapshot still requires read/write access.
 
-> **For setup / `Initialize-UTCM`:** you also need `Application.ReadWrite.All`,
-> `AppRoleAssignment.ReadWrite.All`, `Directory.ReadWrite.All`, and
-> `RoleManagement.ReadWrite.Directory` (the last one is required to assign the
-> `Global Reader` directory role for Teams).
+> **For setup / `Initialize-UTCM`:** `Application.ReadWrite.All` and
+> `AppRoleAssignment.ReadWrite.All` are required. `RoleManagement.ReadWrite.Directory`
+> is requested only when Teams is selected, to assign the `Global Reader` directory role.
+> `Directory.ReadWrite.All` is not requested. These are the operator's delegated scopes,
+> not the workload application permissions assigned to the UTCM service principal.
+
+Existing delegated connections are checked for sufficient scopes. A missing scope produces an error
+with reconnect guidance; the module does not silently switch accounts, tenants, or environments.
+An existing read/write scope satisfies the corresponding read scope. App-only and caller-supplied
+token connections are retained; Microsoft Graph enforces their permissions. Reusing an existing
+connection does not reduce its privileges: disconnect privileged setup sessions when finished.
 
 ### UTCM Service Principal Permissions
 
@@ -81,6 +89,8 @@ workload-specific permissions. Use `Grant-UTCMWorkloadAccess` to assign them.
 | Module | Required For |
 |---|---|
 | `Microsoft.Graph.Authentication` | All operations (Graph API calls) |
+| `Microsoft.Graph.Applications` | Service-principal setup, workload app-role grants, setup inspection |
+| `Microsoft.Graph.Identity.DirectoryManagement` | Teams directory-role setup |
 | `ExchangeOnlineManagement` | `Grant-UTCMWorkloadAccess -Workloads Exchange` or `SecurityAndCompliance` (EXO RBAC setup) |
 
 ---
@@ -201,13 +211,16 @@ UTCM.Tools/
 ```powershell
 # 1. Bootstrap UTCM (one-time)
 Import-Module UTCM.Tools -Force
-Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All","Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All","Directory.ReadWrite.All","RoleManagement.ReadWrite.Directory"
 Initialize-UTCM -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
 
-# 2. Create a baseline snapshot
+# 2. End the privileged setup session and connect for normal UTCM operations
+Disconnect-MgGraph
+Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All"
+
+# 3. Create a baseline snapshot
 $snap = New-UTCMSnapshot -DisplayName "Baseline March 2026"
 
-# 3. Generate drift report against current tenant state
+# 4. Generate drift report against current tenant state
 Get-UTCMTenantDriftReport -SnapshotId $snap.id -CompareToCurrent -Dashboard -OutputPath .\Reports -NoPrompt
 ```
 
@@ -261,7 +274,17 @@ One-shot wrapper: runs `Enable-UTCM` then `Grant-UTCMWorkloadAccess`.
 
 ```powershell
 Initialize-UTCM -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
+
+# Offline preview: no Graph/Exchange connection or tenant changes
+Initialize-UTCM -Workloads Entra,Teams -WhatIf
+
+# Explicitly approved unattended setup
+Initialize-UTCM -Workloads Entra -Confirm:$false
 ```
+
+`Initialize-UTCM`, `Enable-UTCM`, and `Grant-UTCMWorkloadAccess` use high-impact confirmation.
+Initialization obtains all selected setup scopes before making changes and confirms the overall
+operation once. The default workload set remains all five workloads; select a subset to limit grants.
 
 ---
 
@@ -352,6 +375,22 @@ Get-UTCMPreset -Name ExchangeCore       # show resources in preset
 Get-UTCMPreset -Name TenantCore -Raw    # raw string array
 ```
 
+Preset precedence remains **built-in defaults → shipped JSON → machine override → user override**.
+On Windows the override locations are `%ProgramData%\UTCM.Tools\resource-presets.json` and
+`%AppData%\UTCM.Tools\resource-presets.json`.
+
+Machine-wide overrides are loaded only after ownership and ACL validation. The file and its containing
+directory must be owned by Administrators, SYSTEM, or TrustedInstaller, with no write grants to other
+principals. Ancestors must also have trusted ownership and must not permit untrusted replacement or
+permission changes. Reparse points are rejected. An administrator must provision this location securely;
+the module never changes filesystem permissions automatically. Validation is conservative (an untrusted
+write allow-rule is rejected even if another rule denies it), and inability to establish trust stops
+preset loading with an error rather than silently falling back.
+
+Per-user overrides retain their existing behavior. Overrides that replace an existing preset emit a
+warning; inspect the effective resources before taking a snapshot. Absent Windows environment paths
+are omitted rather than passed to `Join-Path`; no new non-Windows override locations are introduced.
+
 ---
 
 ### `Compare-UTCMConfiguration`
@@ -403,7 +442,8 @@ Export-UTCMSnapshot -Snapshot $snap -Path .\exports -SplitByResourceType
 **Output formats:**
 - **JSON** — `configurationItems` array (or full payload with `-Raw`)
 - **CSV** — One row per resource with `Id`, `DisplayName`, `Type`, `Workload`, and `Data` (full
-  configuration JSON, compact). Matches the JSON export in fidelity.
+  configuration JSON, compact). Formula-like text cells are protected as described below; use JSON
+  when exact original text values are required.
 - **HTML** — Self-contained report (see [HTML reports](#html-reports)): summary cards and workload distribution,
   search across ID, name, type, workload **and property values**, workload/type filters, items grouped by
   workload (or a flat paged view), column chooser, and expandable per-item configuration JSON. Empty snapshots
@@ -432,8 +472,9 @@ Generates a self-contained HTML report and a CSV from a diff result.
 2. **Full current state** — every item from the current snapshot (shown when `-CurrentItems` is supplied).
 
 > **Counts:** `Compare-UTCMConfiguration` represents a modified resource as two rows (baseline and current).
-> The report pairs them, so `Added`, `Missing` and `Changed` count *resources*. The companion **CSV is
-> unchanged** and still has one row per diff row (`Id`, `DisplayName`, `Type`, `DriftType`, `NormalizedData`).
+> The report pairs them, so `Added`, `Missing` and `Changed` count *resources*. The companion CSV
+> still has one row per diff row (`Id`, `DisplayName`, `Type`, `DriftType`, `NormalizedData`);
+> formula-like text cells are protected for spreadsheet safety.
 
 ```powershell
 $diff = Compare-UTCMConfiguration -BaselineSnapshotId <GUID>
@@ -466,6 +507,13 @@ Both HTML outputs (`New-UTCMDriftReport`, `Export-UTCMSnapshot -Format HTML`) sh
 **Downloads from the report:** the drift CSV matches the CSV file the cmdlet writes. Snapshot CSV uses the same
 columns as the CSV export (`Id`, `DisplayName`, `Type`, `Workload`, `Data`); the JSON download contains the
 normalized `{ id, displayName, type, workload, data }` items.
+
+**Spreadsheet safety (v1.4.1):** both cmdlet CSV exports and browser CSV downloads prefix text cells
+starting with `=`, `+`, `-`, or `@` (including after leading ASCII spaces, tabs, or line breaks), or
+starting with a tab/CR/LF, with an apostrophe. CSV quoting alone does not prevent formula interpretation.
+Column names, row counts, and ordinary cell values are unchanged, but potentially dangerous cells
+intentionally differ from their source text. JSON downloads/exports, displayed values, and copy buttons
+retain original data. Existing HTML files must be regenerated to receive this protection.
 
 **Large snapshots:** measured on a developer laptop, a 5,000-item snapshot is about 4 MB and a 10,000-item
 snapshot about 8.5 MB (generation takes roughly 7 s per 10,000 items). Chromium-based browsers open them in
@@ -747,12 +795,19 @@ Import-Module UTCM.Tools -Force
 
 ## Error Handling
 
-- **4xx errors** fail immediately (no retry) with full response body extraction
+- **4xx errors other than 429** fail immediately (no retry) with full response body extraction
 - **429 / 503** retried with exponential backoff respecting `Retry-After` header
+- **Exhausted retries** throw a terminating error, including for 429/503; the final attempt does not sleep again
 - **Snapshot job failures** dump full job JSON as a warning for diagnosis
 - **`partiallySuccessful`** snapshots return successfully -- use `-IncludeDetails` to inspect per-resource `errorDetails`
 - Bind-time GUID validation on all snapshot ID parameters
-- Safe `@odata.nextLink` pagination (handles missing property without errors)
+- Pagination and snapshot download URLs must use HTTPS and the connected Graph environment's host/port;
+  user-info, fragments, network-path URLs, and external hosts are rejected before requesting them
+- All snapshot artifact downloads use Graph authentication and the shared retry helper; external
+  storage URLs are deliberately unsupported pending verification of a service contract
+- Resource-type filters escape OData string literals before URL encoding
+- Directory-role assignment errors are not reported as successful duplicates unless the intended
+  membership is verified after the failure
 
 ---
 
@@ -795,6 +850,11 @@ Invoke-Pester -Path .\UTCM.Tools\Tests -CI
 ```
 
 Tests write only to Pester's `$TestDrive`. An opt-in report performance test runs when `$env:UTCM_PERF` is set.
+When Node.js is available, the suite also checks the generated client script's syntax and browser/PowerShell
+CSV protection parity using only Node's built-in modules; that check is skipped when Node is unavailable.
+Generated `testResults.xml` and `TestResults/` are ignored. Publishing stages only the module manifest,
+root module, top-level Public/Private `.ps1` files (excluding test scripts), and the two shipped preset
+JSON files, rather than copying arbitrary files from the module directory.
 
 ---
 

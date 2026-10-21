@@ -13,9 +13,10 @@ function New-UTCMDriftReport {
           - Column chooser, CSV/JSON downloads, copy buttons, shareable filter state (URL hash), print layout.
 
         A modified resource appears in Compare-UTCMConfiguration output as two rows (one per side); the
-        report pairs them. The companion CSV is unchanged and still lists one row per diff row
+        report pairs them. The companion CSV still lists one row per diff row
         (Id, DisplayName, Type, DriftType, NormalizedData). An empty -Diff produces a "No drift detected"
-        report and a header-only CSV.
+        report and a header-only CSV. Formula-like CSV text cells are prefixed with an apostrophe
+        for spreadsheet safety; JSON and HTML values are not modified.
 
     .PARAMETER Diff
         The diff array from Compare-UTCMConfiguration (may be empty).
@@ -107,15 +108,15 @@ function New-UTCMDriftReport {
     } else {
         $diffRows |
             Select-Object `
-                @{n='Id';e={$_.id}},
-                @{n='DisplayName';e={$_.displayName}},
+                @{n='Id';e={ConvertTo-UTCMCsvCell $_.id}},
+                @{n='DisplayName';e={ConvertTo-UTCMCsvCell $_.displayName}},
                 @{n='Type';e={
-                    if ($_.PSObject.Properties.Name -contains 'type') { $_.type }
-                    elseif ($_.PSObject.Properties.Name -contains 'resourceType') { $_.resourceType }
+                    if ($_.PSObject.Properties.Name -contains 'type') { ConvertTo-UTCMCsvCell $_.type }
+                    elseif ($_.PSObject.Properties.Name -contains 'resourceType') { ConvertTo-UTCMCsvCell $_.resourceType }
                     else { $null }
                 }},
-                @{n='DriftType';e={ Get-UTCMDriftTypeLabel $_.SideIndicator }},
-                @{n='NormalizedData';e={$_.normalizedData}} |
+                @{n='DriftType';e={ ConvertTo-UTCMCsvCell (Get-UTCMDriftTypeLabel $_.SideIndicator) }},
+                @{n='NormalizedData';e={ConvertTo-UTCMCsvCell $_.normalizedData}} |
             Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
     }
 

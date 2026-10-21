@@ -17,5 +17,6 @@ Describe "Get-UTCMSnapshot (GUID validation at binding)" {
         $o = Get-UTCMSnapshot -SnapshotId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
         $o.id | Should -Be 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
         $o.status | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName UTCM.Tools Ensure-GraphConnection -Times 1 -Exactly -ParameterFilter { $ReadOnly }
     }
 }

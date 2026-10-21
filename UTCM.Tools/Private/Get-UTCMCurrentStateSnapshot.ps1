@@ -7,6 +7,8 @@ function Get-UTCMCurrentStateSnapshot {
         [int]$PollingIntervalSeconds = 10
     )
 
+    Ensure-GraphConnection
+
     # Build request body — the createSnapshot action REQUIRES a resources array
     $body = @{
         displayName = "UTCM Temp Current State"
@@ -51,7 +53,7 @@ function Get-UTCMCurrentStateSnapshot {
 
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
-        Invoke-MgGraphRequest -Method GET -Uri $status.resourceLocation -OutputFilePath $tmp -ErrorAction Stop
+        Invoke-GraphRequestWithRetry -Method GET -Uri $status.resourceLocation -OutputFilePath $tmp
         $raw  = Get-Content -LiteralPath $tmp -Raw
         $json = $raw | ConvertFrom-Json -ErrorAction Stop
 

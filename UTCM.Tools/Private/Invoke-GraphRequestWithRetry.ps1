@@ -5,29 +5,25 @@ function Invoke-GraphRequestWithRetry {
         [Parameter(Mandatory)][string]$Uri,
         $Body = $null,
         [hashtable]$Headers = @{},
-        [int]$MaxRetries = 5
+        [ValidateRange(1,2147483647)][int]$MaxRetries = 5,
+        [string]$OutputFilePath
     )
+
+    $requestUri = Resolve-UTCMGraphUri -Uri $Uri
+    $logUri = ([uri]$requestUri).GetLeftPart([UriPartial]::Path)
+    $request = @{ Method = $Method; Uri = $requestUri; ErrorAction = 'Stop' }
+    if ($null -ne $Body) {
+        $request.Body = $Body
+        $request.ContentType = 'application/json'
+    }
+    if ($Headers.Count -gt 0) { $request.Headers = $Headers }
+    if ($PSBoundParameters.ContainsKey('OutputFilePath')) { $request.OutputFilePath = $OutputFilePath }
 
     $attempt = 0
     while ($attempt -lt $MaxRetries) {
         try {
             $attempt++
-            if ($null -ne $Body) {
-                # Pass the body as a hashtable — let Invoke-MgGraphRequest handle JSON
-                # serialisation. Pre-serialising with ConvertTo-Json can cause double-
-                # encoding in some SDK versions.
-                if ($Headers.Count -gt 0) {
-                    return Invoke-MgGraphRequest -Method $Method -Uri $Uri `
-                        -Body $Body -ContentType 'application/json' -Headers $Headers
-                }
-                return Invoke-MgGraphRequest -Method $Method -Uri $Uri `
-                    -Body $Body -ContentType 'application/json'
-            } else {
-                if ($Headers.Count -gt 0) {
-                    return Invoke-MgGraphRequest -Method $Method -Uri $Uri -Headers $Headers
-                }
-                return Invoke-MgGraphRequest -Method $Method -Uri $Uri
-            }
+            return Invoke-MgGraphRequest @request
         } catch {
             $ex = $_.Exception
             $message = $ex.Message
@@ -85,6 +81,13 @@ function Invoke-GraphRequestWithRetry {
                 }
             } catch { <# ignore #> }
 
+            if ($statusCode -ge 400 -and $statusCode -lt 500 -and $statusCode -ne 429) {
+                throw "Graph request failed with HTTP $statusCode. Method=$Method Uri=$logUri Error: $message"
+            }
+            if ($attempt -ge $MaxRetries) {
+                throw "Graph request failed after $MaxRetries attempts (HTTP $statusCode). Method=$Method Uri=$logUri Error: $message"
+            }
+
             # ── Check for throttling (429/503) ──
             if ($statusCode -in @(429, 503)) {
                 $retryAfter = 0
@@ -99,16 +102,6 @@ function Invoke-GraphRequestWithRetry {
                 Write-Log -Message "Graph throttled/temporarily unavailable (attempt $attempt). Retrying in $retryAfter sec..." -Color Yellow
                 Start-Sleep -Seconds $retryAfter
                 continue
-            }
-
-            # ── Client errors (4xx except 429) are NOT transient — fail immediately ──
-            if ($statusCode -ge 400 -and $statusCode -lt 500) {
-                throw "Graph request failed with HTTP $statusCode. Method=$Method Uri=$Uri Error: $message"
-            }
-
-            # ── Exhausted retries ──
-            if ($attempt -ge $MaxRetries) {
-                throw "Graph request failed after $MaxRetries attempts. Method=$Method Uri=$Uri Error: $message"
             }
 
             # ── Server/transient error — retry with exponential backoff ──

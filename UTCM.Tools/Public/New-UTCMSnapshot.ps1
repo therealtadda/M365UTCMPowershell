@@ -129,7 +129,7 @@ function New-UTCMSnapshot {
     }
 
     if (Get-Command -Name Write-Log -ErrorAction SilentlyContinue) {
-        Write-Log -Message ("Snapshot completed with status '{0}'. ResourceLocation={1}" -f $status.status, $status.resourceLocation) -Color Green
+        Write-Log -Message ("Snapshot job '{0}' completed with status '{1}'." -f $status.id, $status.status) -Color Green
     }
 
     # Return the final job (contains id, status, and resourceLocation)

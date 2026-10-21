@@ -57,7 +57,11 @@ function Compare-UTCMConfiguration {
         [int]$PollingIntervalSeconds = 10
     )
 
-    Ensure-GraphConnection
+    if ($PSCmdlet.ParameterSetName -eq 'AgainstCurrent') {
+        Ensure-GraphConnection
+    } else {
+        Ensure-GraphConnection -ReadOnly
+    }
 
     # Fetch baseline snapshot (must include items for comparison)
     $baseline = Get-UTCMSnapshot -SnapshotId $BaselineSnapshotId -IncludeItems

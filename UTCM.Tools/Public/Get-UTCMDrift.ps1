@@ -86,7 +86,8 @@ function Get-UTCMDrift {
         $filters += "status eq '$Status'"
     }
     if ($ResourceType) {
-        $filters += "resourceType eq '$ResourceType'"
+        $escapedResourceType = $ResourceType.Replace("'", "''")
+        $filters += "resourceType eq '$escapedResourceType'"
     }
 
     # Assemble querystring

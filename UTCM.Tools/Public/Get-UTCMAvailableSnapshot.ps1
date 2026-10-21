@@ -79,7 +79,7 @@ function Get-UTCMAvailableSnapshot {
 
     # Ensure a Graph token is available
     if (Get-Command -Name Ensure-GraphConnection -ErrorAction SilentlyContinue) {
-        Ensure-GraphConnection
+        Ensure-GraphConnection -ReadOnly
     }
 
     # -------------------------------

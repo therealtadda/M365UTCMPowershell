@@ -1,7 +1,7 @@
 @{
     # Core identity
     RootModule        = 'UTCM.Tools.psm1'
-    ModuleVersion     = '1.4.0'
+    ModuleVersion     = '1.4.1'
     GUID              = 'c8b6d337-2a88-4f7b-b7c0-3e5d21df310a'
     Author            = 'Tadd Axon'
     CompanyName       = 'tadda.org'
@@ -68,6 +68,16 @@
             License    = 'BSD-3-Clause'
 
             ReleaseNotes = @'
+1.4.1
+- CSV text cells are spreadsheet-safe by default in snapshot/drift exports and HTML downloads; JSON and displayed values remain unchanged.
+- Graph requests validate HTTPS URLs against the connected environment, including pagination and snapshot downloads. External download hosts are rejected.
+- Snapshot downloads consistently use Graph authentication and retry handling; exhausted retries now throw without a final unnecessary sleep.
+- Privileged setup supports an offline -WhatIf preview and high-impact confirmation. Setup requests only the required scopes, adding role management for Teams.
+- Existing delegated sessions are checked for required scopes without silently changing tenant/account; read-only workflows request read-only permissions.
+- Directory-role assignment errors are reported unless concurrent membership is verified; resource-type OData literals are escaped.
+- Machine-wide presets require trusted Windows ownership and ACLs, reject reparse points, and warn when replacing a shipped/built-in preset.
+- Publishing stages only intended module content; generated test output is no longer tracked.
+
 1.4.0
 - Redesigned HTML reports (New-UTCMDriftReport and Export-UTCMSnapshot -Format HTML) on a shared, self-contained foundation:
   summary cards, workload/type distribution, search (including property values), status/workload/type filters, sorting, paging,

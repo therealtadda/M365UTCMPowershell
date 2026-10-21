@@ -191,7 +191,11 @@ function Get-UTCMReportScript {
       fallback();
     }
   }
-  function csvCell(v) { return '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"'; }
+  function csvCell(v) {
+    var text = String(v === null || v === undefined ? '' : v);
+    if (/^[ \t\r\n]*[=+\-@]|^[\t\r\n]/.test(text)) { text = "'" + text; }
+    return '"' + text.replace(/"/g, '""') + '"';
+  }
   function toCsv(headers, rows) {
     var out = [headers.map(csvCell).join(',')];
     rows.forEach(function (r) { out.push(r.map(csvCell).join(',')); });

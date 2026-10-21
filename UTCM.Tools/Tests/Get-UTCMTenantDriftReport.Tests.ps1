@@ -51,4 +51,25 @@ Describe "Get-UTCMTenantDriftReport (orchestrator) with bind-time validation" {
         $res | Should -BeNullOrEmpty
         Should -Invoke -ModuleName UTCM.Tools New-UTCMDriftReport -Times 1 -ParameterFilter { @($Diff).Count -eq 0 }
     }
+
+    It "Defaults to read-only scopes when listing existing snapshots" {
+        Get-UTCMTenantDriftReport -ListSnapshots
+        Should -Invoke -ModuleName UTCM.Tools Ensure-GraphConnection -Times 1 -Exactly -ParameterFilter {
+            $Scopes.Count -eq 1 -and $Scopes[0] -eq 'ConfigurationMonitoring.Read.All'
+        }
+    }
+
+    It "Retains write scopes when creating the current-state snapshot" {
+        Get-UTCMTenantDriftReport -SnapshotId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' -CompareToCurrent -NoPrompt
+        Should -Invoke -ModuleName UTCM.Tools Ensure-GraphConnection -Times 1 -Exactly -ParameterFilter {
+            $Scopes -contains 'ConfigurationMonitoring.ReadWrite.All'
+        }
+    }
+
+    It "Preserves explicitly supplied GraphScopes in a read-only workflow" {
+        Get-UTCMTenantDriftReport -ListSnapshots -GraphScopes @('ConfigurationMonitoring.ReadWrite.All')
+        Should -Invoke -ModuleName UTCM.Tools Ensure-GraphConnection -Times 1 -Exactly -ParameterFilter {
+            $Scopes -contains 'ConfigurationMonitoring.ReadWrite.All'
+        }
+    }
 }

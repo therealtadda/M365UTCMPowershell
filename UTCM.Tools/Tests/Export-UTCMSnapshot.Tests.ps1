@@ -5,6 +5,7 @@ Describe "Export-UTCMSnapshot" {
     BeforeAll {
         Mock -ModuleName UTCM.Tools Write-Log {}
         Mock -ModuleName UTCM.Tools Ensure-GraphConnection {}
+        Mock -ModuleName UTCM.Tools Get-MgContext { $null }
 
         # Mock the Graph download (Invoke-MgGraphRequest writes to file)
         Mock -ModuleName UTCM.Tools Invoke-MgGraphRequest {

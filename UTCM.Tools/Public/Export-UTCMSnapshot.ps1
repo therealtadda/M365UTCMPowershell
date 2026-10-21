@@ -10,7 +10,8 @@ function Export-UTCMSnapshot {
 
         Output formats (all enabled by default — use -Format to choose a subset):
             JSON — configurationItems array (or full payload with -Raw)
-            CSV  — flat table with Id, DisplayName, Type, Workload, Data columns
+            CSV  — flat table with Id, DisplayName, Type, Workload, Data columns;
+                   formula-like text cells are prefixed with an apostrophe for spreadsheet safety
             HTML — self-contained, searchable and filterable report of all configuration items (grouped by workload),
                    with expandable per-item configuration JSON, column chooser and CSV/JSON downloads
 
@@ -132,7 +133,7 @@ function Export-UTCMSnapshot {
 
     # Ensure Graph connection if your module provides the helper
     if (Get-Command -Name Ensure-GraphConnection -ErrorAction SilentlyContinue) {
-        Ensure-GraphConnection
+        Ensure-GraphConnection -ReadOnly
     }
 
     # Resolve the job object from input
@@ -182,13 +183,15 @@ function Export-UTCMSnapshot {
     # Prepare destination directory (Path is always a directory now)
     _EnsureDirectory $Path
 
-    # Download to a temp file first (resourceLocation is a Graph API URL that requires auth)
+    $downloadUri = Resolve-UTCMGraphUri -Uri $job.resourceLocation
+
+    # Download only from the connected Graph endpoint, using Graph authentication.
     $tmp = [System.IO.Path]::GetTempFileName()
     $outPaths = @()
 
     try {
-        if ($PSCmdlet.ShouldProcess($job.resourceLocation, "Download UTCM snapshot")) {
-            Invoke-MgGraphRequest -Method GET -Uri $job.resourceLocation -OutputFilePath $tmp -ErrorAction Stop
+        if ($PSCmdlet.ShouldProcess("Snapshot job $($job.id)", "Download UTCM snapshot")) {
+            Invoke-GraphRequestWithRetry -Method GET -Uri $downloadUri -OutputFilePath $tmp
         }
 
         # Try to interpret as JSON; if not JSON (e.g., ZIP), write raw file and return.
@@ -316,11 +319,11 @@ function Export-UTCMSnapshot {
                                try { $dataObj | ConvertTo-Json -Depth 99 -Compress } catch { [string]$dataObj }
                            } else { '' }
                 [pscustomobject]@{
-                    Id          = _GetItemId $_
-                    DisplayName = $_.displayName
-                    Type        = $typeVal
-                    Workload    = $wl
-                    Data        = $dataStr
+                    Id          = ConvertTo-UTCMCsvCell (_GetItemId $_)
+                    DisplayName = ConvertTo-UTCMCsvCell $_.displayName
+                    Type        = ConvertTo-UTCMCsvCell $typeVal
+                    Workload    = ConvertTo-UTCMCsvCell $wl
+                    Data        = ConvertTo-UTCMCsvCell $dataStr
                 }
             } | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
             _WriteLog ("CSV   -> $csvPath") 'Green'

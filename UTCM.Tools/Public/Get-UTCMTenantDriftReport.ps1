@@ -49,7 +49,8 @@ function Get-UTCMTenantDriftReport {
         Seconds between polls during snapshot creation. Default: 10.
 
     .PARAMETER GraphScopes
-        Graph scopes for the connection. Default: ConfigurationMonitoring.ReadWrite.All.
+        Graph scopes for the connection. Defaults to ConfigurationMonitoring.Read.All for
+        read-only workflows, or ConfigurationMonitoring.ReadWrite.All when creating snapshots.
 
     .OUTPUTS
         The diff array (or $null if no comparison was performed).
@@ -101,6 +102,10 @@ function Get-UTCMTenantDriftReport {
 
     # Ensure Graph session (scope list is passed through for consistency with your module)
     if (Get-Command -Name Ensure-GraphConnection -ErrorAction SilentlyContinue) {
+        if (-not $PSBoundParameters.ContainsKey('GraphScopes') -and
+            ($ListSnapshots -or (-not $CreateSnapshot -and -not $CompareToCurrent))) {
+            $GraphScopes = @('ConfigurationMonitoring.Read.All')
+        }
         Ensure-GraphConnection -Scopes $GraphScopes
     }
 

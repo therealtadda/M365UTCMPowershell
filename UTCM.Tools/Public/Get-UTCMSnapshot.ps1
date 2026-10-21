@@ -57,7 +57,7 @@ function Get-UTCMSnapshot {
 
     # Ensure we have a Graph token (uses the module helper if present)
     if (Get-Command -Name Ensure-GraphConnection -ErrorAction SilentlyContinue) {
-        Ensure-GraphConnection
+        Ensure-GraphConnection -ReadOnly
     }
 
     # 1) Build $select to minimize payload from Graph
@@ -98,7 +98,7 @@ function Get-UTCMSnapshot {
         # Download to temp, parse as JSON, attach configurationItems
         $tmp = [System.IO.Path]::GetTempFileName()
         try {
-            Invoke-WebRequest -Uri $job.resourceLocation -OutFile $tmp -UseBasicParsing -ErrorAction Stop
+            Invoke-GraphRequestWithRetry -Method GET -Uri $job.resourceLocation -OutputFilePath $tmp
             $raw  = Get-Content -LiteralPath $tmp -Raw
             $json = $null
             try { $json = $raw | ConvertFrom-Json -ErrorAction Stop } catch { $json = $null }
