@@ -860,6 +860,54 @@ JSON files, rather than copying arbitrary files from the module directory.
 
 ---
 
+## Read-only live-tenant smoke test
+
+[Test-UTCMReadOnly.ps1](./Test-UTCMReadOnly.ps1) is a repository-side validation script,
+not an exported module command or part of the Gallery package. Preparing or running its
+Pester tests does not contact a tenant. Running the script itself makes authenticated
+read requests, so run it only when authorized to access the target tenant.
+
+Use an **existing Graph connection in the same PowerShell session** and supply the
+expected directory tenant **GUID**, not a domain name. If a connection is needed,
+establish it explicitly yourself; the script never signs in or reconnects:
+
+```powershell
+# Replace this example GUID with the intended tenant's directory (tenant) ID.
+$tenantId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+
+# Optional manual sign-in; omit if already connected to the intended tenant.
+Connect-MgGraph -TenantId $tenantId -Scopes 'ConfigurationMonitoring.Read.All' -ContextScope Process -NoWelcome
+
+$result = .\Test-UTCMReadOnly.ps1 -TenantId $tenantId
+$result.Checks | Format-Table Name, Status, Count
+
+# Optional: download one existing completed snapshot and count its configuration items.
+.\Test-UTCMReadOnly.ps1 -TenantId $tenantId -SnapshotId $existingSnapshotId
+```
+
+The script imports this checkout's module and checks the tenant and environment before
+each read. A missing connection, tenant/environment mismatch, missing delegated scope,
+or API error terminates validation rather than changing the connection or returning a
+successful summary. Existing app-only and caller-supplied-token sessions are retained;
+Graph enforces their permissions. Reusing a privileged connection does not reduce its
+privileges, although the script issues only read operations.
+
+Default checks read snapshot jobs, monitors, monitoring results from the last seven days,
+and drifts. Snapshot jobs, results, and drifts are limited to five returned rows **after**
+the module follows all matching pages; this is not a network-request limit. Monitors
+are counted without that client-side limit.
+
+Output includes tenant/environment/authentication type, module version, UTC timestamp,
+and per-check status/counts, not resource names, account details, tokens, or configuration
+values. `Passed` means the read succeeded; zero rows are valid and do not prove that
+workload setup or monitor runs are healthy. Artifact validation is explicitly `Skipped`
+unless `-SnapshotId` is supplied. That opt-in uses authenticated Graph downloads and the
+module's temporary-file cleanup; external artifact hosts are rejected. The script never
+creates/deletes snapshots, changes monitors, grants permissions, or generates a current-state
+snapshot. It does not save a report or perform Safari-device validation.
+
+---
+
 ## Contributing
 
 1. Fork
