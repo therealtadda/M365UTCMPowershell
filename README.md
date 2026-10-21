@@ -514,6 +514,8 @@ starting with a tab/CR/LF, with an apostrophe. CSV quoting alone does not preven
 Column names, row counts, and ordinary cell values are unchanged, but potentially dangerous cells
 intentionally differ from their source text. JSON downloads/exports, displayed values, and copy buttons
 retain original data. Existing HTML files must be regenerated to receive this protection.
+Report metadata attributes encode carriage returns, line feeds, and tabs as character references,
+so HTML parsing does not change their values in browser CSV/JSON downloads.
 
 **Large snapshots:** measured on a developer laptop, a 5,000-item snapshot is about 4 MB and a 10,000-item
 snapshot about 8.5 MB (generation takes roughly 7 s per 10,000 items). Chromium-based browsers open them in

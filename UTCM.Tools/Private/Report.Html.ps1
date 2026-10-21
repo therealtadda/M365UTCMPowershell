@@ -2,7 +2,9 @@ function ConvertTo-UTCMHtmlText {
     # Null-safe HTML encoding for text and attribute values.
     [CmdletBinding()]
     param([AllowNull()][AllowEmptyString()] $Value)
-    return [System.Net.WebUtility]::HtmlEncode([string]$Value)
+    $encoded = [System.Net.WebUtility]::HtmlEncode([string]$Value)
+    # Character references survive document LF normalization and HTML attribute parsing.
+    return $encoded.Replace("`r", '&#13;').Replace("`n", '&#10;').Replace("`t", '&#9;')
 }
 
 function ConvertTo-UTCMSafeUrl {
@@ -113,7 +115,7 @@ function Format-UTCMCopyable {
     [CmdletBinding()]
     param([AllowNull()][AllowEmptyString()][string] $Text, [string] $Tag = 'span', [switch] $IsId)
 
-    $e = [System.Net.WebUtility]::HtmlEncode($Text)
+    $e = ConvertTo-UTCMHtmlText $Text
     $cls = if ($IsId) { 'cp cp-id' } else { 'cp' }
     return "<span class=`"$cls`"><$Tag class=`"v`">$e</$Tag></span>"
 }
@@ -132,7 +134,7 @@ function Format-UTCMPropertyTable {
     $all = @($Rows)
     $shown = if ($all.Count -gt $Max) { $all[0..($Max - 1)] } else { $all }
     $sb = New-Object System.Text.StringBuilder
-    $lbl = [System.Net.WebUtility]::HtmlEncode($Label)
+    $lbl = ConvertTo-UTCMHtmlText $Label
     [void]$sb.Append("<div class=`"tablewrap`" role=`"region`" aria-label=`"$lbl`" tabindex=`"0`"><table class=`"props`"><thead><tr>")
     if ($Mode -eq 'diff') {
         [void]$sb.Append('<th scope="col">Change</th><th scope="col">Property</th><th scope="col">Baseline</th><th scope="col">Current</th>')
@@ -174,7 +176,7 @@ function Format-UTCMDriftItem {
     $rec = $Record
     $status = $rec.Status
     $name = if ($rec.DisplayName) { $rec.DisplayName } else { '(unnamed)' }
-    $nameAttr = $enc::HtmlEncode([string]$rec.DisplayName)
+    $nameAttr = ConvertTo-UTCMHtmlText $rec.DisplayName
 
     $rows = $null; $changes = 0; $changesText = ''
     $printHtml = ''; $tableHtml = ''; $note = ''; $rawHtml = ''
@@ -223,7 +225,7 @@ function Format-UTCMDriftItem {
     $badge = Format-UTCMStatusBadge -Status $status
 
     return @"
-<tbody class="item" data-status="$status" data-workload="$($enc::HtmlEncode($rec.Workload))" data-type="$($enc::HtmlEncode($rec.Type))" data-name="$nameAttr" data-id="$($enc::HtmlEncode($rec.Id))" data-changes="$changes" data-rows="$rowIdx">
+<tbody class="item" data-status="$status" data-workload="$(ConvertTo-UTCMHtmlText $rec.Workload)" data-type="$(ConvertTo-UTCMHtmlText $rec.Type)" data-name="$nameAttr" data-id="$(ConvertTo-UTCMHtmlText $rec.Id)" data-changes="$changes" data-rows="$rowIdx">
 <tr class="main"><td data-label="Status">$badge</td><td data-label="Resource"><span class="nm">$($enc::HtmlEncode($name))</span>$idCell</td><td data-col="type" data-label="Type">$($enc::HtmlEncode($rec.Type))</td><td data-col="workload" data-label="Workload">$($enc::HtmlEncode($rec.Workload))</td><td data-col="changes" data-label="Changes">$changesText</td></tr>
 <tr class="detail"><td colspan="5">$printHtml<details><summary>Show property details</summary>$note$tableHtml$rawHtml</details></td></tr>
 </tbody>
@@ -243,10 +245,10 @@ function Format-UTCMInventoryItem {
     }
     $preview = $enc::HtmlEncode((Get-UTCMItemPreview -Data $Item.Data))
     $idCell = if ($Item.Id) { "<span class=`"idl`" data-col=`"id`">$(Format-UTCMCopyable $Item.Id -Tag 'code' -IsId)</span>" } else { '' }
-    $wl = $enc::HtmlEncode($Item.Workload)
+    $wl = ConvertTo-UTCMHtmlText $Item.Workload
 
     return @"
-<tbody class="item" data-workload="$wl" data-type="$($enc::HtmlEncode($Item.Type))" data-name="$($enc::HtmlEncode([string]$Item.DisplayName))" data-id="$($enc::HtmlEncode($Item.Id))">
+<tbody class="item" data-workload="$wl" data-type="$(ConvertTo-UTCMHtmlText $Item.Type)" data-name="$(ConvertTo-UTCMHtmlText $Item.DisplayName)" data-id="$(ConvertTo-UTCMHtmlText $Item.Id)">
 <tr class="main"><td data-label="Resource"><span class="nm">$($enc::HtmlEncode($name))</span>$idCell</td><td data-col="type" data-label="Type">$($enc::HtmlEncode($Item.Type))</td><td data-col="workload" data-label="Workload">$wl</td><td data-col="preview" data-label="Preview">$preview</td></tr>
 <tr class="detail"><td colspan="4"><details><summary>Configuration JSON</summary><pre class="raw">$($enc::HtmlEncode($json))</pre></details></td></tr>
 </tbody>
@@ -316,7 +318,7 @@ function Format-UTCMToolbar {
     foreach ($pair in @(@('workload', 'Workload', $Workloads, 'All workloads'), @('type', 'Resource type', $Types, 'All types'))) {
         if ($pair[2] -and @($pair[2]).Count -gt 0) {
             [void]$sb.Append("<div class=`"fld`"><label for=`"$($pair[0])-$sid`">$($pair[1])</label><select id=`"$($pair[0])-$sid`" data-f=`"$($pair[0])`"><option value=`"`">$($pair[3])</option>")
-            foreach ($o in $pair[2]) { $ov = $enc::HtmlEncode([string]$o); [void]$sb.Append("<option value=`"$ov`">$ov</option>") }
+            foreach ($o in $pair[2]) { $ov = ConvertTo-UTCMHtmlText $o; [void]$sb.Append("<option value=`"$ov`">$ov</option>") }
             [void]$sb.Append('</select></div>')
         }
     }
@@ -520,7 +522,7 @@ $toolbar
         $openAll = ($list.Count -le 500) -or ($byWorkload.Count -eq 1)
         $groups = $list | Group-Object -Property Workload
         foreach ($g in ($groups | Sort-Object Name)) {
-            $wl = $enc::HtmlEncode([string]$g.Name)
+            $wl = ConvertTo-UTCMHtmlText $g.Name
             $rows = New-Object System.Text.StringBuilder
             foreach ($it in (Get-UTCMSortedReportItem $g.Group)) { [void]$rows.Append((Format-UTCMInventoryItem -Item $it)) }
             $open = if ($openAll) { ' open' } else { '' }

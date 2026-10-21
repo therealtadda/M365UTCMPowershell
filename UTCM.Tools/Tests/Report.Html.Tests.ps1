@@ -11,6 +11,58 @@ BeforeAll {
 }
 
 Describe "Encoding and URL helpers" {
+    It "Preserves control characters through HTML encoding and document normalization: <Label>" -ForEach @(
+        @{ Label = 'carriage return'; Value = "`rtext"; Encoded = '&#13;text' }
+        @{ Label = 'CRLF'; Value = "line`r`ntext"; Encoded = 'line&#13;&#10;text' }
+        @{ Label = 'newline'; Value = "`ntext"; Encoded = '&#10;text' }
+        @{ Label = 'tab'; Value = "`ttext"; Encoded = '&#9;text' }
+    ) {
+        InModuleScope UTCM.Tools -Parameters @{ Value = $Value; Expected = $Encoded } {
+            $encoded = ConvertTo-UTCMHtmlText $Value
+            $encoded | Should -Be $Expected
+            [System.Net.WebUtility]::HtmlDecode((ConvertTo-UTCMLfText $encoded)) | Should -BeExactly $Value
+        }
+    }
+
+    It "Keeps escaping hostile markup while preserving encoded control characters" {
+        InModuleScope UTCM.Tools {
+            ConvertTo-UTCMHtmlText $null | Should -Be ''
+            ConvertTo-UTCMHtmlText '' | Should -Be ''
+            $value = "`r`n`t" + '"><img src=x onerror=alert(1)>'
+            $encoded = ConvertTo-UTCMHtmlText $value
+            $encoded | Should -Not -Match '[<>"\r\n\t]'
+            [System.Net.WebUtility]::HtmlDecode($encoded) | Should -BeExactly $value
+        }
+    }
+
+    It "Preserves copyable text and inventory metadata in both report surfaces" {
+        InModuleScope UTCM.Tools {
+            $value = "line`r`n`tvalue"
+            $item = [pscustomobject]@{ Id = $value; DisplayName = $value; Type = $value; Workload = $value; Data = @{ Name = $value } }
+            $html = Format-UTCMSnapshotReportHtml -Items @($item) -SnapshotName 'Controls' `
+                -SnapshotId 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' -Created $null -Status 'succeeded' -GeneratedUtc 'now'
+            $html | Should -Not -Match "`r"
+            foreach ($attribute in @('data-id','data-name','data-type','data-workload','data-wl','data-group')) {
+                $match = [regex]::Match($html, "$attribute=`"([^`"]*)`"")
+                $match.Success | Should -BeTrue
+                [System.Net.WebUtility]::HtmlDecode($match.Groups[1].Value) | Should -BeExactly $value
+            }
+            $option = [regex]::Match($html, '<option value="(line[^"]*)">')
+            [System.Net.WebUtility]::HtmlDecode($option.Groups[1].Value) | Should -BeExactly $value
+            $copy = Format-UTCMCopyable $value
+            $copy | Should -Match 'line&#13;&#10;&#9;value'
+            $record = [pscustomobject]@{
+                Status = 'Added'; Id = $value; DisplayName = $value; Type = $value; Workload = $value
+                CurrentData = '{}'; BaselineData = $null; RowIndexes = @(0)
+            }
+            $drift = ConvertTo-UTCMLfText (Format-UTCMDriftItem -Record $record)
+            foreach ($attribute in @('data-id','data-name','data-type','data-workload')) {
+                $match = [regex]::Match($drift, "$attribute=`"([^`"]*)`"")
+                [System.Net.WebUtility]::HtmlDecode($match.Groups[1].Value) | Should -BeExactly $value
+            }
+        }
+    }
+
     It "ConvertTo-UTCMSafeUrl only allows absolute https URLs" {
         InModuleScope UTCM.Tools {
             ConvertTo-UTCMSafeUrl 'https://graph.microsoft.com/v1.0/x' | Should -Be 'https://graph.microsoft.com/v1.0/x'

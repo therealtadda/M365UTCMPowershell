@@ -70,6 +70,7 @@
             ReleaseNotes = @'
 1.4.1
 - CSV text cells are spreadsheet-safe by default in snapshot/drift exports and HTML downloads; JSON and displayed values remain unchanged.
+- Report metadata preserves CR/LF/tab characters through HTML parsing so browser CSV/JSON downloads retain the original values.
 - Graph requests validate HTTPS URLs against the connected environment, including pagination and snapshot downloads. External download hosts are rejected.
 - Snapshot downloads consistently use Graph authentication and retry handling; exhausted retries now throw without a final unnecessary sleep.
 - Privileged setup supports an offline -WhatIf preview and high-impact confirmation. Setup requests only the required scopes, adding role management for Teams.
