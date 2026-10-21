@@ -8,7 +8,7 @@ function Get-UTCMPreset {
         - Or returns the resources for a specific preset (as PSCustomObject or raw string[]).
 
     .PARAMETER Name
-        Name of a preset (e.g., TenantCore, TeamsCore+Voice, SecurityCore). If omitted, all names are listed.
+        Name of a preset (e.g., AllSupported, TenantCore, TeamsCore+Voice). If omitted, all names are listed.
 
     .PARAMETER Raw
         Return just the string[] of resource identifiers for the preset (no wrapper object).
@@ -27,6 +27,10 @@ function Get-UTCMPreset {
     .EXAMPLE
         # Get raw resource array (string[])
         Get-UTCMPreset -Name 'TeamsCore+Voice' -Raw
+
+    .EXAMPLE
+        # Inspect the reviewed all-supported snapshot resource list without connecting to Graph
+        Get-UTCMPreset -Name AllSupported -Raw
     #>
     [CmdletBinding(DefaultParameterSetName='List')]
     param(
@@ -47,7 +51,7 @@ function Get-UTCMPreset {
         return ($presets.Keys | Sort-Object)
     }
 
-    if (-not $presets.ContainsKey($Name)) {
+    if (-not $presets.Contains($Name)) {
         $known = ($presets.Keys | Sort-Object) -join ', '
         throw "Preset '$Name' not found. Known presets: $known"
     }

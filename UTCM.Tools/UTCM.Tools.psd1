@@ -1,7 +1,7 @@
 @{
     # Core identity
     RootModule        = 'UTCM.Tools.psm1'
-    ModuleVersion     = '1.4.1'
+    ModuleVersion     = '1.5.0'
     GUID              = 'c8b6d337-2a88-4f7b-b7c0-3e5d21df310a'
     Author            = 'Tadd Axon'
     CompanyName       = 'tadda.org'
@@ -68,6 +68,12 @@
             License    = 'BSD-3-Clause'
 
             ReleaseNotes = @'
+1.5.0
+- Added the opt-in AllSupported snapshot preset with 244 reviewed resource types across all five workload namespaces; existing presets and the TenantCore default are unchanged.
+- Expanded the warn-only resource allow-list to match the comprehensive preset while retaining every previously recognized type.
+- Documented 27 resource types explicitly rejected by the v1.0 snapshot service, with Microsoft Learn references and limits on what request acceptance proves.
+- Fixed named Get-UTCMPreset inspection to use OrderedDictionary-compatible lookup; added offline preset, completion, override, and snapshot-request tests.
+
 1.4.1
 - CSV text cells are spreadsheet-safe by default in snapshot/drift exports and HTML downloads; JSON and displayed values remain unchanged.
 - Report metadata preserves CR/LF/tab characters through HTML parsing so browser CSV/JSON downloads retain the original values.

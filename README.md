@@ -321,7 +321,34 @@ New-UTCMSnapshot -DisplayName "Pre Change Audit 20260313"
 > Any special characters are automatically stripped before submission.
 
 Available presets: `ExchangeCore`, `EntraCore`, `TeamsCore`, `IntuneCore`, `SecCompCore`,
-`TenantCore`, `TeamsCore+Voice`, `IntuneCore+Roles`, `SecurityCore`.
+`TenantCore`, `TeamsCore+Voice`, `IntuneCore+Roles`, `SecurityCore`, `AllSupported`.
+
+**All-supported snapshots (v1.5.0):** `AllSupported` is an explicit opt-in to the **244
+resource types** in the reviewed snapshot catalogue: Entra 36, Exchange 66, Intune 67,
+Security/Compliance 24, and Teams 51. `TenantCore` remains the default, and the existing
+presets are unchanged.
+
+```powershell
+# Inspect the effective list locally, including any configured preset overrides
+Get-UTCMPreset -Name AllSupported
+Get-UTCMPreset -Name AllSupported -Raw
+
+# With an appropriately authorized Graph connection, create a broad snapshot
+New-UTCMSnapshot -Preset AllSupported -DisplayName "All Supported Baseline"
+```
+
+The catalogue is a shipped, reviewed list, **not runtime discovery**. It excludes 27
+identifiers explicitly rejected by the v1.0 snapshot service during validation on
+2026-10-21 (UTC). Request acceptance does not guarantee successful extraction of every
+type; workload permissions and available resource instances still matter. A broad
+snapshot can consume substantial extraction quota and does not grant workload access.
+For current-state comparisons, opt in with `Get-UTCMTenantDriftReport -CompareToCurrent -ComparePreset AllSupported`;
+without a comparison override, the baseline's resource types remain the default.
+
+See [Unsupported snapshot resource types and coverage notes](UNSUPPORTED-RESOURCE-TYPES.md)
+for every exclusion, the evidence boundaries, maintenance guidance, and Microsoft Learn
+references. The local warn-only allow-list now covers the same 244 types; it does not
+override service-side validation.
 
 ---
 
@@ -373,6 +400,7 @@ Lists available resource presets or inspects a specific preset.
 Get-UTCMPreset                          # list all preset names
 Get-UTCMPreset -Name ExchangeCore       # show resources in preset
 Get-UTCMPreset -Name TenantCore -Raw    # raw string array
+Get-UTCMPreset -Name AllSupported -Raw  # comprehensive reviewed snapshot catalogue
 ```
 
 Preset precedence remains **built-in defaults → shipped JSON → machine override → user override**.

@@ -72,4 +72,22 @@ Describe "Get-UTCMTenantDriftReport (orchestrator) with bind-time validation" {
             $Scopes -contains 'ConfigurationMonitoring.ReadWrite.All'
         }
     }
+
+    It "Resolves AllSupported only when explicitly selected for the current-state comparison" {
+        Mock -ModuleName UTCM.Tools Get-UTCMPresetSearchPaths {
+            Join-Path (Get-Module UTCM.Tools).ModuleBase 'Presets\resource-presets.json'
+        }
+        Get-UTCMTenantDriftReport -SnapshotId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' -CompareToCurrent -ComparePreset AllSupported -NoPrompt | Out-Null
+        Should -Invoke -ModuleName UTCM.Tools Get-UTCMCurrentStateSnapshot -Times 1 -Exactly -ParameterFilter {
+            $allowed = (Get-Content -LiteralPath (Join-Path (Get-Module UTCM.Tools).ModuleBase 'Presets\supported-resource-types.json') -Raw | ConvertFrom-Json).resourceTypes
+            $Resources.Count -eq 244 -and @(Compare-Object $Resources $allowed).Count -eq 0
+        }
+    }
+
+    It "Keeps baseline resource types as the default current-state comparison scope" {
+        Get-UTCMTenantDriftReport -SnapshotId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' -CompareToCurrent -NoPrompt | Out-Null
+        Should -Invoke -ModuleName UTCM.Tools Get-UTCMCurrentStateSnapshot -Times 1 -Exactly -ParameterFilter {
+            $Resources.Count -eq 1 -and $Resources[0] -eq 'x'
+        }
+    }
 }

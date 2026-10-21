@@ -21,6 +21,9 @@ function New-UTCMSnapshot {
 
     .PARAMETER Preset
         Named preset from Presets/resource-presets.json. Default: TenantCore.
+        AllSupported explicitly selects every type in the reviewed snapshot catalogue,
+        excluding known service-rejected types. Workload permissions are still required;
+        selecting this preset does not grant permissions or guarantee complete extraction.
 
     .PARAMETER DisplayName
         Friendly snapshot name (alphanumeric + spaces only; special characters stripped).
@@ -36,6 +39,9 @@ function New-UTCMSnapshot {
 
     .EXAMPLE
         New-UTCMSnapshot -Preset ExchangeCore -DisplayName "Exchange Baseline"
+
+    .EXAMPLE
+        New-UTCMSnapshot -Preset AllSupported -DisplayName "All Supported Baseline"
 
     .EXAMPLE
         New-UTCMSnapshot -Resources 'microsoft.exchange.sharedmailbox','microsoft.exchange.transportrule'
