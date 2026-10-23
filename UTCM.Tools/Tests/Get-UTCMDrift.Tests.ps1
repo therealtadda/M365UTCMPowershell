@@ -54,6 +54,13 @@ Describe "Get-UTCMDrift" {
         }
     }
 
+    It "Escapes quotes inside the ResourceType OData literal" {
+        Get-UTCMDrift -ResourceType "x' or status eq 'fixed" -Status active
+        Should -Invoke -ModuleName UTCM.Tools Invoke-GraphRequestWithRetry -Times 1 -Exactly -ParameterFilter {
+            [uri]::UnescapeDataString($Uri) -like "*status eq 'active' and resourceType eq 'x'' or status eq ''fixed'"
+        }
+    }
+
     It "Returns JSON when -AsJson is used" {
         $json = Get-UTCMDrift -AsJson
         $json | Should -Match '"id".*drift-1'

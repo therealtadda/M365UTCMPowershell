@@ -7,11 +7,16 @@ function Export-UTCMSnapshot {
         Accepts either a configurationSnapshotJob object (as returned by New-UTCMSnapshot) or a job Id (GUID).
         If the job isn't completed yet, this function polls until a terminal status is reached.
         It then downloads from job.resourceLocation and writes the requested formats.
+        Partial exports emit a warning and retain status, requested resources and errorDetails
+        in Snapshot-{jobId}.diagnostics.json beside the exported files. The existing snapshot
+        JSON/CSV shapes and returned snapshot-file paths are unchanged.
 
         Output formats (all enabled by default — use -Format to choose a subset):
             JSON — configurationItems array (or full payload with -Raw)
-            CSV  — flat table with Id, DisplayName, Type, Workload, Data columns
-            HTML — self-contained sortable dashboard of all configuration items
+            CSV  — flat table with Id, DisplayName, Type, Workload, Data columns;
+                   formula-like text cells are prefixed with an apostrophe for spreadsheet safety
+            HTML — self-contained, searchable and filterable report of all configuration items (grouped by workload),
+                   with expandable per-item configuration JSON, column chooser and CSV/JSON downloads
 
         Path behaviour:
             Path is always treated as a DIRECTORY (created if missing).
@@ -52,7 +57,7 @@ function Export-UTCMSnapshot {
         Path for the error JSON file.
 
     .OUTPUTS
-        String[] — the file path(s) written.
+        String[] — the snapshot file path(s) written (the diagnostics sidecar is announced separately).
     #>
     [CmdletBinding(SupportsShouldProcess=$true)]
     param(
@@ -131,14 +136,13 @@ function Export-UTCMSnapshot {
 
     # Ensure Graph connection if your module provides the helper
     if (Get-Command -Name Ensure-GraphConnection -ErrorAction SilentlyContinue) {
-        Ensure-GraphConnection
+        Ensure-GraphConnection -ReadOnly
     }
 
     # Resolve the job object from input
     $job = $null
-    if ($Snapshot -is [string]) {
-        $jobId = $Snapshot
-        $job   = Invoke-GraphRequestWithRetry -Method 'GET' -Uri "$($script:SnapshotJobsUri)/$jobId"
+    if ($Snapshot -is [string] -or $Snapshot -is [guid]) {
+        $job = Get-UTCMSnapshot -SnapshotId ([string]$Snapshot) -IncludeDetails
     } else {
         $job = $Snapshot
     }
@@ -146,56 +150,71 @@ function Export-UTCMSnapshot {
     # If the job isn't terminal yet, poll until it completes
     while ($job.status -in @('notStarted','running')) {
         Start-Sleep -Seconds $PollingIntervalSeconds
-        $job = Invoke-GraphRequestWithRetry -Method 'GET' -Uri "$($script:SnapshotJobsUri)/$($job.id)"
+        $job = Get-UTCMSnapshot -SnapshotId $job.id -IncludeDetails
         _WriteLog ("Export poll: job $($job.id) status = $($job.status)") 'Gray'
     }
+
+    $jobFields = if ($job -is [System.Collections.IDictionary]) { @($job.Keys) } else { @($job.PSObject.Properties.Name) }
+    if ($job.status -eq 'partiallySuccessful' -and
+        ('errorDetails' -notin $jobFields -or 'resources' -notin $jobFields -or 'resourceLocation' -notin $jobFields)) {
+        $job = Get-UTCMSnapshot -SnapshotId $job.id -IncludeDetails
+    }
+    $diagnostic = Get-UTCMSnapshotDiagnostic -Snapshot $job
 
     # If job failed, optionally write error-details file, then throw
     if ($job.status -eq 'failed') {
         if ($WriteErrorFileOnFailure) {
             _WriteErrorJson -job $job -errPath $ErrorPath
         }
-        $errors  = ($job.PSObject.Properties.Name -contains 'errorDetails') ? ($job.errorDetails -join '; ') : $null
-        $errText = if ($errors) { $errors } else { 'n/a' }
-        throw ("Snapshot job '{0}' failed. Errors: {1}" -f $job.id, $errText)
+        throw ("Snapshot job '{0}' failed. Errors: {1}" -f $job.id, $diagnostic.errorSummary)
     }
 
     # Validate exportable statuses
     if ($job.status -notin @('succeeded','partiallySuccessful')) {
-        $errors  = ($job.PSObject.Properties.Name -contains 'errorDetails') ? ($job.errorDetails -join '; ') : $null
-        $errText = if ($errors) { $errors } else { '' }
         if ($WriteErrorFileOnFailure) {
             _WriteErrorJson -job $job -errPath $ErrorPath
         }
-        throw ("Snapshot job '{0}' is not exportable. Status: '{1}'. {2}" -f $job.id, $job.status, $errText)
+        throw ("Snapshot job '{0}' is not exportable. Status: '{1}'. {2}" -f $job.id, $job.status, $diagnostic.errorSummary)
     }
 
     # Ensure resourceLocation exists
-    if ([string]::IsNullOrWhiteSpace($job.resourceLocation)) {
+    $resourceLocation = [string](Get-UTCMObjectField $job @('resourceLocation'))
+    if ([string]::IsNullOrWhiteSpace($resourceLocation)) {
         if ($WriteErrorFileOnFailure) {
             _WriteErrorJson -job $job -errPath $ErrorPath
         }
         throw "Snapshot job '$($job.id)' has no resourceLocation. Unable to export."
     }
 
-    # Prepare destination directory (Path is always a directory now)
-    _EnsureDirectory $Path
+    $downloadUri = Resolve-UTCMGraphUri -Uri $resourceLocation
+    $diagnosticsPath = Join-Path -Path $Path -ChildPath ("Snapshot-{0}.diagnostics.json" -f $job.id)
+    if ($diagnostic.status -eq 'partiallySuccessful' -and (Test-Path -LiteralPath $diagnosticsPath) -and -not $Overwrite) {
+        throw "Diagnostics file '$diagnosticsPath' already exists. Use -Overwrite to replace it."
+    }
 
-    # Download to a temp file first (resourceLocation is a Graph API URL that requires auth)
-    $tmp = [System.IO.Path]::GetTempFileName()
+    # Download only from the connected Graph endpoint, using Graph authentication.
+    $tmp = $null
     $outPaths = @()
 
     try {
-        if ($PSCmdlet.ShouldProcess($job.resourceLocation, "Download UTCM snapshot")) {
-            Invoke-MgGraphRequest -Method GET -Uri $job.resourceLocation -OutputFilePath $tmp -ErrorAction Stop
+        if (-not $PSCmdlet.ShouldProcess("Snapshot job $($job.id)", "Download and export UTCM snapshot")) {
+            return
         }
+        $tmp = [System.IO.Path]::GetTempFileName()
+        _EnsureDirectory $Path
+        if ($diagnostic.status -eq 'partiallySuccessful') {
+            Export-UTCMSnapshotDiagnostic -Diagnostic @($diagnostic) -Path $diagnosticsPath -Overwrite:$Overwrite | Out-Null
+            Write-Warning ("Snapshot job '{0}' is partiallySuccessful; this export is incomplete. {1} Diagnostics: {2}" -f
+                $job.id, $diagnostic.errorSummary, $diagnosticsPath)
+        }
+        Invoke-GraphRequestWithRetry -Method GET -Uri $downloadUri -OutputFilePath $tmp
 
         # Try to interpret as JSON; if not JSON (e.g., ZIP), write raw file and return.
         $content = Get-Content -LiteralPath $tmp -Raw -ErrorAction Stop
         $json    = $null
         $isJson  = $false
         try {
-            $json   = $content | ConvertFrom-Json -ErrorAction Stop
+            $json   = $content | ConvertFrom-Json -NoEnumerate -ErrorAction Stop
             $isJson = $true
         } catch {
             $isJson = $false
@@ -295,7 +314,9 @@ function Export-UTCMSnapshot {
         if ('JSON' -in $Format) {
             $jsonPath = Join-Path -Path $Path -ChildPath ("$baseName.json")
             if ($Raw) {
-                $json | ConvertTo-Json -Depth 99 | Out-File -LiteralPath $jsonPath -Encoding UTF8
+                ConvertTo-Json -InputObject $json -Depth 99 | Out-File -LiteralPath $jsonPath -Encoding UTF8
+            } elseif (@($items).Count -eq 0) {
+                '[]' | Out-File -LiteralPath $jsonPath -Encoding UTF8
             } else {
                 $items | ConvertTo-Json -Depth 99 | Out-File -LiteralPath $jsonPath -Encoding UTF8
             }
@@ -306,160 +327,40 @@ function Export-UTCMSnapshot {
         # CSV
         if ('CSV' -in $Format) {
             $csvPath = Join-Path -Path $Path -ChildPath ("$baseName.csv")
-            $items | ForEach-Object {
-                $typeVal = _GetItemType $_
-                $wl      = if ($_.PSObject.Properties.Name -contains 'workload' -and $_.workload) { [string]$_.workload }
-                           else { _WorkloadFromResourceType $typeVal }
-                $dataObj = _GetItemDataObject $_
-                $dataStr = if ($null -ne $dataObj) {
-                               try { $dataObj | ConvertTo-Json -Depth 99 -Compress } catch { [string]$dataObj }
-                           } else { '' }
-                [pscustomobject]@{
-                    Id          = _GetItemId $_
-                    DisplayName = $_.displayName
-                    Type        = $typeVal
-                    Workload    = $wl
-                    Data        = $dataStr
-                }
-            } | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
+            if (@($items).Count -eq 0) {
+                '"Id","DisplayName","Type","Workload","Data"' | Out-File -LiteralPath $csvPath -Encoding UTF8
+            } else {
+                $items | ForEach-Object {
+                    $typeVal = _GetItemType $_
+                    $wl      = if ($_.PSObject.Properties.Name -contains 'workload' -and $_.workload) { [string]$_.workload }
+                               else { _WorkloadFromResourceType $typeVal }
+                    $dataObj = _GetItemDataObject $_
+                    $dataStr = if ($null -ne $dataObj) {
+                                   try { $dataObj | ConvertTo-Json -Depth 99 -Compress } catch { [string]$dataObj }
+                               } else { '' }
+                    [pscustomobject]@{
+                        Id          = ConvertTo-UTCMCsvCell (_GetItemId $_)
+                        DisplayName = ConvertTo-UTCMCsvCell $_.displayName
+                        Type        = ConvertTo-UTCMCsvCell $typeVal
+                        Workload    = ConvertTo-UTCMCsvCell $wl
+                        Data        = ConvertTo-UTCMCsvCell $dataStr
+                    }
+                } | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
+            }
             _WriteLog ("CSV   -> $csvPath") 'Green'
             $outPaths += $csvPath
         }
 
-        # HTML
+        # HTML (shared report foundation: self-contained, searchable, filterable, paged, accessible)
         if ('HTML' -in $Format) {
             $htmlPath = Join-Path -Path $Path -ChildPath ("$baseName.html")
-
-            # Safe HTML encoder
-            $encodeFn = if (Get-Command -Name HtmlEncode -ErrorAction SilentlyContinue) {
-                { param($v) HtmlEncode $v }
-            } else {
-                { param($v) if ($null -eq $v) { '' } else { [System.Net.WebUtility]::HtmlEncode([string]$v) } }
-            }
-
-            $snapshotName = ''
-            $createdStr   = ''
-            try {
-                if ($job.PSObject.Properties.Name -contains 'displayName') { $snapshotName = $job.displayName }
-                if ($job.PSObject.Properties.Name -contains 'createdDateTime') { $createdStr = (Get-Date $job.createdDateTime).ToString('yyyy-MM-dd HH:mm:ss') }
-            } catch {}
-
-            # Group items by workload for summary
-            $groups = @{}
-            foreach ($item in $items) {
-                $typeVal = _GetItemType $item
-                if (-not $typeVal) { $typeVal = 'unknown' }
-                $wl      = if ($item.PSObject.Properties.Name -contains 'workload' -and $item.workload) { [string]$item.workload }
-                           else { _WorkloadFromResourceType $typeVal }
-                if (-not $groups.ContainsKey($wl)) { $groups[$wl] = 0 }
-                $groups[$wl]++
-            }
-            $summarySpans = ($groups.GetEnumerator() | Sort-Object Name | ForEach-Object {
-                "<span style='background:#e0e0e0;padding:4px 8px;border-radius:4px;display:inline-block;margin:2px 4px'>" +
-                (& $encodeFn $_.Name) + ": $($_.Value)</span>"
-            }) -join ''
-
-            $rowHtml = foreach ($item in $items) {
-                $typeVal = _GetItemType $item
-                $wl      = if ($item.PSObject.Properties.Name -contains 'workload' -and $item.workload) { [string]$item.workload }
-                           else { _WorkloadFromResourceType $typeVal }
-                $dataObj = _GetItemDataObject $item
-                $dataJson = ''
-                if ($null -ne $dataObj) {
-                    try { $dataJson = $dataObj | ConvertTo-Json -Depth 99 } catch { $dataJson = [string]$dataObj }
-                }
-                $rowIdx = [guid]::NewGuid().ToString('N').Substring(0,8)
-                $idVal  = _GetItemId $item
-                "<tr>
-                    <td>$(& $encodeFn $idVal)</td>
-                    <td>$(& $encodeFn $item.displayName)</td>
-                    <td>$(& $encodeFn $typeVal)</td>
-                    <td>$(& $encodeFn $wl)</td>
-                    <td><button class='toggleBtn' onclick=""toggleDetail('d$rowIdx')"">Show</button>
-                        <div id='d$rowIdx' class='detail' style='display:none'><pre>$(& $encodeFn $dataJson)</pre></div></td>
-                </tr>"
-            }
-
-            $html = @"
-<html>
-<head>
-<meta charset="utf-8">
-<title>UTCM Snapshot Export</title>
-<style>
-body { font-family: Arial, Helvetica, sans-serif; margin: 20px; }
-h2 { margin-bottom: 6px; }
-small { color: #666; }
-table { border-collapse: collapse; width: 100%; margin-top: 10px; }
-th, td { padding: 8px; border: 1px solid #ccc; text-align: left; vertical-align: top; }
-th { background: #333; color: #fff; cursor: pointer; }
-tr:nth-child(even) { background: #f9f9f9; }
-tr:hover { background: #eef; }
-.summary { margin-top: 10px; font-size: 13px; }
-.toggleBtn { font-size: 11px; padding: 2px 8px; cursor: pointer; }
-.detail pre { background: #f4f4f4; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow: auto; font-size: 12px; margin-top: 4px; }
-</style>
-<script>
-function sortTable(n) {
-  var table = document.getElementById("snapTable");
-  var switching = true, dir = "asc";
-  while (switching) {
-    switching = false;
-    var rows = table.rows;
-    for (var i = 1; i < (rows.length - 1); i++) {
-      var x = rows[i].getElementsByTagName("TD")[n];
-      var y = rows[i + 1].getElementsByTagName("TD")[n];
-      if ((dir == "asc"  && x.textContent.toLowerCase() > y.textContent.toLowerCase()) ||
-          (dir == "desc" && x.textContent.toLowerCase() < y.textContent.toLowerCase())) {
-        rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
-        switching = true; break;
-      }
-    }
-    if (!switching && dir == "asc") { dir = "desc"; switching = true; }
-  }
-}
-function toggleDetail(id) {
-  var el = document.getElementById(id);
-  var btn = el.parentElement.querySelector('.toggleBtn');
-  if (el.style.display === 'none') { el.style.display = 'block'; btn.textContent = 'Hide'; }
-  else { el.style.display = 'none'; btn.textContent = 'Show'; }
-}
-function expandAll() {
-  document.querySelectorAll('.detail').forEach(function(el){ el.style.display='block'; el.parentElement.querySelector('.toggleBtn').textContent='Hide'; });
-}
-function collapseAll() {
-  document.querySelectorAll('.detail').forEach(function(el){ el.style.display='none'; el.parentElement.querySelector('.toggleBtn').textContent='Show'; });
-}
-</script>
-</head>
-<body>
-  <h2>UTCM Snapshot Export</h2>
-  <small>
-    Snapshot: $(& $encodeFn $snapshotName) ($(& $encodeFn $job.id))
-    &nbsp;|&nbsp; Created: $(& $encodeFn $createdStr)
-    &nbsp;|&nbsp; Status: $(& $encodeFn $job.status)
-    &nbsp;|&nbsp; Items: $($items.Count)
-    &nbsp;|&nbsp; Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-  </small>
-  <div class="summary">$summarySpans</div>
-  <p style="margin-top:8px"><button onclick="expandAll()">Expand All</button> <button onclick="collapseAll()">Collapse All</button></p>
-  <table id="snapTable">
-    <thead>
-      <tr>
-        <th onclick="sortTable(0)">ID</th>
-        <th onclick="sortTable(1)">Display Name</th>
-        <th onclick="sortTable(2)">Type</th>
-        <th onclick="sortTable(3)">Workload</th>
-        <th>Settings</th>
-      </tr>
-    </thead>
-    <tbody>
-      $($rowHtml -join "`n")
-    </tbody>
-  </table>
-</body>
-</html>
-"@
-            $html | Out-File -LiteralPath $htmlPath -Encoding UTF8
+            $html = Format-UTCMSnapshotReportHtml -Items $items `
+                -SnapshotName ([string](Get-UTCMObjectField $job @('displayName'))) -SnapshotId ([string]$job.id) `
+                -Created (Get-UTCMObjectField $job @('createdDateTime')) -Status ([string]$job.status) `
+                -SnapshotDiagnostic $diagnostic `
+                -GeneratedUtc ((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss') + ' UTC')
+            $fullHtmlPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($htmlPath)
+            [System.IO.File]::WriteAllText($fullHtmlPath, $html, (New-Object System.Text.UTF8Encoding($false)))
             _WriteLog ("HTML  -> $htmlPath") 'Green'
             $outPaths += $htmlPath
         }
@@ -474,6 +375,8 @@ function collapseAll() {
         throw
     }
     finally {
-        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+        if ($tmp -and (Test-Path -LiteralPath $tmp)) {
+            Remove-Item -LiteralPath $tmp -Force -Confirm:$false -WhatIf:$false -ErrorAction SilentlyContinue
+        }
     }
 }

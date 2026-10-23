@@ -7,13 +7,16 @@ function Get-UTCMTenantDriftReport {
         Orchestrates the full drift workflow:
           1. Select or create a baseline snapshot (interactive menu or -SnapshotId / -CreateSnapshot).
           2. Optionally create a current-state snapshot and compare (-CompareToCurrent).
-             Resources for the comparison snapshot default to the same types as the baseline;
+             Resources default to the baseline's original requested types, including types with no instances;
              override with -ComparePreset or -CompareResources. In interactive mode a preset
              menu is shown.
           3. Optionally export the baseline to JSON (-ExportJson).
           4. Optionally generate a paginated HTML drift dashboard + CSV (-Dashboard).
              The HTML includes a drift summary on page 1 and the full current configuration
              state on page 2.
+        Partial comparisons are rejected by default, before creating a current-state job
+        when the baseline is already partial. An explicit override produces warnings,
+        an incomplete-comparison banner and a diagnostics JSON sidecar.
 
     .PARAMETER CreateSnapshot
         Create a fresh baseline snapshot before comparing.
@@ -29,6 +32,10 @@ function Get-UTCMTenantDriftReport {
 
     .PARAMETER CompareResources
         Explicit resource identifiers for the current-state snapshot.
+
+    .PARAMETER AllowPartialComparison
+        Allow partiallySuccessful snapshots for investigation only. Differences are provisional
+        and cannot establish reliable drift or absence of drift.
 
     .PARAMETER ExportJson
         Export the baseline snapshot to JSON in the output directory.
@@ -49,7 +56,8 @@ function Get-UTCMTenantDriftReport {
         Seconds between polls during snapshot creation. Default: 10.
 
     .PARAMETER GraphScopes
-        Graph scopes for the connection. Default: ConfigurationMonitoring.ReadWrite.All.
+        Graph scopes for the connection. Defaults to ConfigurationMonitoring.Read.All for
+        read-only workflows, or ConfigurationMonitoring.ReadWrite.All when creating snapshots.
 
     .OUTPUTS
         The diff array (or $null if no comparison was performed).
@@ -78,6 +86,7 @@ function Get-UTCMTenantDriftReport {
         [string] $SnapshotId,
 
         [switch] $CompareToCurrent,
+        [switch] $AllowPartialComparison,
         [switch] $ExportJson,
         [switch] $Dashboard,
         [switch] $ListSnapshots,
@@ -101,6 +110,10 @@ function Get-UTCMTenantDriftReport {
 
     # Ensure Graph session (scope list is passed through for consistency with your module)
     if (Get-Command -Name Ensure-GraphConnection -ErrorAction SilentlyContinue) {
+        if (-not $PSBoundParameters.ContainsKey('GraphScopes') -and
+            ($ListSnapshots -or (-not $CreateSnapshot -and -not $CompareToCurrent))) {
+            $GraphScopes = @('ConfigurationMonitoring.Read.All')
+        }
         Ensure-GraphConnection -Scopes $GraphScopes
     }
 
@@ -151,8 +164,7 @@ function Get-UTCMTenantDriftReport {
         $SnapshotId = $job.id
     }
 
-    # Fetch baseline snapshot metadata (concise by default)
-    $baseline = Get-UTCMSnapshot -SnapshotId $SnapshotId
+    $baseline = Get-UTCMSnapshot -SnapshotId $SnapshotId -IncludeDetails
 
     # Export baseline if requested (downloads from resourceLocation under the hood)
     if ($ExportJson) {
@@ -165,7 +177,10 @@ function Get-UTCMTenantDriftReport {
 
     # Optionally compare against the current state
     $diff = $null
+    $compared = $false
     if ($CompareToCurrent) {
+        Assert-UTCMComparableSnapshot -Snapshot $baseline -Role 'Baseline' -AllowPartialComparison:$AllowPartialComparison
+
         if (-not (Get-Command -Name Get-UTCMCurrentStateSnapshot -ErrorAction SilentlyContinue)) {
             throw "Get-UTCMCurrentStateSnapshot is not available in this module."
         }
@@ -186,10 +201,7 @@ function Get-UTCMTenantDriftReport {
         }
 
         if (-not $compResources) {
-            # Derive from baseline snapshot items
-            $baselineDetail = Get-UTCMSnapshot -SnapshotId $SnapshotId -IncludeItems
-            $baselineResources = @($baselineDetail.configurationItems |
-                ForEach-Object { $_.type } | Select-Object -Unique)
+            $baselineResources = @(Get-UTCMComparisonResource -Snapshot $baseline)
 
             if (-not $NoPrompt) {
                 # Interactive: offer presets or same-as-baseline
@@ -227,10 +239,17 @@ function Get-UTCMTenantDriftReport {
             throw "Could not determine resources for current-state comparison."
         }
 
-        Write-Host ("Creating current-state snapshot with {0} resource type(s)..." -f $compResources.Count) -ForegroundColor Cyan
-        $current = Get-UTCMCurrentStateSnapshot -Resources $compResources -PollingIntervalSeconds $PollingIntervalSeconds
+        $baseline = Get-UTCMSnapshot -SnapshotId $SnapshotId -IncludeItems
+        Assert-UTCMComparableSnapshot -Snapshot $baseline -Role 'Baseline' -AllowPartialComparison:$AllowPartialComparison
 
-        $diff = Compare-UTCMConfiguration -BaselineSnapshotId $SnapshotId -CompareSnapshotId $current.id
+        Write-Host ("Creating current-state snapshot with {0} resource type(s)..." -f $compResources.Count) -ForegroundColor Cyan
+        $current = Get-UTCMCurrentStateSnapshot -Resources $compResources -PollingIntervalSeconds $PollingIntervalSeconds `
+            -AllowPartialComparison:$AllowPartialComparison
+        Assert-UTCMComparableSnapshot -Snapshot $current -Role 'Comparison' -AllowPartialComparison:$AllowPartialComparison
+
+        $diff = Compare-UTCMConfiguration -BaselineSnapshotId $SnapshotId -CompareSnapshotId $current.id `
+            -AllowPartialComparison:$AllowPartialComparison
+        $compared = $true
 
         # Fetch current items for full-state page in the drift report
         $currentItems = $null
@@ -244,11 +263,11 @@ function Get-UTCMTenantDriftReport {
         }
     }
 
-    # Optional dashboard (render only if we have a diff)
-    if ($Dashboard -and -not $diff) {
+    # Optional dashboard. A comparison with no differences still renders (a "no drift" report).
+    if ($Dashboard -and -not $compared) {
         Write-Warning "No drift comparison was performed — nothing to render. Use -CompareToCurrent to generate a diff."
     }
-    if ($Dashboard -and $diff) {
+    if ($Dashboard -and $compared) {
         if (-not (Get-Command -Name Resolve-OutputPath -ErrorAction SilentlyContinue)) {
             throw "Resolve-OutputPath utility is not available. Ensure your Private helpers are loaded."
         }
@@ -259,9 +278,10 @@ function Get-UTCMTenantDriftReport {
         }
 
         $reportParams = @{
-            Diff       = $diff
+            Diff       = @($diff | Where-Object { $null -ne $_ })
             SnapshotId = $SnapshotId
             OutputPath = $resolved
+            SnapshotDiagnostics = @($baseline, $current)
         }
         if ($currentItems) {
             $reportParams['CurrentItems'] = $currentItems

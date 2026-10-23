@@ -4,7 +4,7 @@ function Get-UTCMMonitor {
         Lists or retrieves UTCM configuration monitors.
 
     .DESCRIPTION
-        Queries GET /beta/admin/configurationManagement/configurationMonitors to list
+        Queries GET /v1.0/admin/configurationManagement/configurationMonitors to list
         all monitors, or retrieves a specific monitor by ID.
         Monitors run periodically to detect drift from a defined baseline.
 
@@ -40,7 +40,7 @@ function Get-UTCMMonitor {
         })]
         [string] $MonitorId,
 
-        [ValidateSet('active')]
+        [ValidateSet('active','inactive','unknownFutureValue')]
         [string] $Status,
 
         [switch] $IncludeBaseline,

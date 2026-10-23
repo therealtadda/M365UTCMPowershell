@@ -1,12 +1,12 @@
 @{
     # Core identity
     RootModule        = 'UTCM.Tools.psm1'
-    ModuleVersion     = '1.2.1'
+    ModuleVersion     = '2.0.0'
     GUID              = 'c8b6d337-2a88-4f7b-b7c0-3e5d21df310a'
     Author            = 'Tadd Axon'
     CompanyName       = 'tadda.org'
     Copyright         = '(c) 2026 Tadd Axon. All rights reserved.'
-    Description       = 'Unified Tenant Configuration Management (UTCM) tooling for Microsoft 365: create and retrieve configuration snapshots, compare snapshots to current tenant state, detect drift via server-side monitors, and export/report results as JSON, CSV, and HTML via the Microsoft Graph beta UTCM APIs.'
+    Description       = 'Unified Tenant Configuration Management (UTCM) tooling for Microsoft 365: create and retrieve configuration snapshots, compare snapshots to current tenant state, manage server-side monitors, and export/report results as JSON, CSV, and HTML via the Microsoft Graph UTCM APIs.'
 
     # Runtime requirements
     PowerShellVersion    = '7.0'
@@ -33,6 +33,8 @@
         'Get-UTCMDrift',
         'New-UTCMMonitor',
         'Get-UTCMMonitor',
+        'Update-UTCMMonitor',
+        'Remove-UTCMMonitor',
         'Get-UTCMMonitoringResult',
         'ConvertTo-UTCMMonitorResource'
     )
@@ -66,6 +68,53 @@
             License    = 'BSD-3-Clause'
 
             ReleaseNotes = @'
+2.0.0
+- Safety change: comparisons now reject incomplete snapshots by default, before creating a current-state job when the baseline is already partial. Use -AllowPartialComparison only for investigation; warnings and incomplete report banners prevent clean drift conclusions.
+- Default comparison scope uses the baseline's original requested resources, including empty types. Missing requested-scope metadata requires an explicit comparison preset/resource list rather than silently narrowing coverage.
+- Current-state snapshots share creation, detailed job projection and artifact normalization with the public commands; job reads request evolvable enum members and select resourceLocation/resources/errorDetails.
+- Partial creation/export emits warnings, preserves service errors, and writes diagnostics JSON beside exported snapshots and incomplete drift reports without changing snapshot JSON or CSV shapes.
+- Empty successful snapshots compare correctly and export valid empty JSON/header-only CSV; raw top-level arrays retain their shape. Baseline-only Compare-UTCMConfiguration now selects its documented current-state parameter set.
+
+1.5.0
+- Added the opt-in AllSupported snapshot preset with 244 reviewed resource types across all five workload namespaces; existing presets and the TenantCore default are unchanged.
+- Expanded the warn-only resource allow-list to match the comprehensive preset while retaining every previously recognized type.
+- Documented 27 resource types explicitly rejected by the v1.0 snapshot service, with Microsoft Learn references and limits on what request acceptance proves.
+- Fixed named Get-UTCMPreset inspection to use OrderedDictionary-compatible lookup; added offline preset, completion, override, and snapshot-request tests.
+
+1.4.1
+- CSV text cells are spreadsheet-safe by default in snapshot/drift exports and HTML downloads; JSON and displayed values remain unchanged.
+- Report metadata preserves CR/LF/tab characters through HTML parsing so browser CSV/JSON downloads retain the original values.
+- Graph requests validate HTTPS URLs against the connected environment, including pagination and snapshot downloads. External download hosts are rejected.
+- Snapshot downloads consistently use Graph authentication and retry handling; exhausted retries now throw without a final unnecessary sleep.
+- Privileged setup supports an offline -WhatIf preview and high-impact confirmation. Setup requests only the required scopes, adding role management for Teams.
+- Existing delegated sessions are checked for required scopes without silently changing tenant/account; read-only workflows request read-only permissions.
+- Directory-role assignment errors are reported unless concurrent membership is verified; resource-type OData literals are escaped.
+- Machine-wide presets require trusted Windows ownership and ACLs, reject reparse points, and warn when replacing a shipped/built-in preset.
+- Publishing stages only intended module content; generated test output is no longer tracked.
+
+1.4.0
+- Redesigned HTML reports (New-UTCMDriftReport and Export-UTCMSnapshot -Format HTML) on a shared, self-contained foundation:
+  summary cards, workload/type distribution, search (including property values), status/workload/type filters, sorting, paging,
+  column chooser, CSV/JSON downloads, copy buttons, shareable filter state in the URL hash, light/dark themes, responsive and print layouts.
+- Drift report: property-level Baseline / Current comparison for changed resources (full JSON remains as "Raw JSON"); a "Show only changed properties" toggle; the Full current state section is searchable and paged.
+- Snapshot report: items grouped by workload (collapsible) or a flat paged view; explicit empty state for snapshots with no items.
+- Accessibility: semantic tables, labelled controls, keyboard support, visible focus, status shown by icon, text and border style (not color alone), forced-colors support.
+- Security: every report ships a Content-Security-Policy that pins its own script and style by SHA-256 and blocks all network access; output is HTML-encoded in text and attribute contexts; only https links are emitted; no inline event handlers or style attributes.
+- CSV and JSON outputs are unchanged. Browser support: current Edge, Chrome and Firefox; Safari is best-effort.
+
+1.3.1
+- Drift report: a modified resource is now reported once as "Changed" (baseline and current shown pretty-printed) instead of as one "Missing" plus one "Added" row. The Added/Missing/Changed counts returned by New-UTCMDriftReport reflect this. CSV output is unchanged.
+- New-UTCMDriftReport accepts an empty -Diff, and Get-UTCMTenantDriftReport -Dashboard now writes a "No drift detected" report instead of warning when the comparison finds no differences.
+- HTML reports: sorting by a column can now end in ascending order; statuses show an icon and text in addition to color; added doctype, lang and viewport.
+- HtmlEncode no longer throws on null or empty input.
+- Test output now goes to TestDrive; Tests/artifacts is no longer tracked.
+
+1.3.0
+- Updated UTCM REST operations to Microsoft Graph v1.0 endpoints.
+- Added Update-UTCMMonitor and Remove-UTCMMonitor.
+- Added support for active and inactive monitor status filtering.
+- Updated UTCM documentation to distinguish GA configuration capabilities from module-supported workflows.
+
 1.2.0
 - Added server-side drift monitoring: New-UTCMMonitor, Get-UTCMMonitor, Get-UTCMMonitoringResult, Get-UTCMDrift.
 - Get-UTCMSnapshot -IncludeItems normalizes both `configurationItems` and `resources`/`properties` payloads to a consistent id/displayName/type/data shape; original artifact exposed as `rawConfiguration`.
@@ -76,7 +125,6 @@
 - Test-UTCMSetup resilient to Microsoft.Graph SDK object-shape differences.
 '@
 
-            # Prerelease = 'beta1'   # Uncomment for preview builds (e.g. 1.3.0-beta1)
             RequireLicenseAcceptance = $false
         }
     }

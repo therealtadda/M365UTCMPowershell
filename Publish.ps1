@@ -6,7 +6,7 @@
     Runs the full pre-publish pipeline:
       1. Validates the module manifest with Test-ModuleManifest.
       2. Optionally runs Pester tests and PSScriptAnalyzer.
-      3. Stages a clean copy of the module under $env:TEMP (excluding Tests/ and dev junk).
+      3. Stages only module entry points, top-level Public/Private scripts, and shipped preset JSON.
       4. Imports the staged copy to sanity-check loading and exported function count.
       5. Publishes to the PowerShell Gallery (or any configured repository).
 
@@ -121,19 +121,23 @@ $stageRoot   = Join-Path $env:TEMP ("utcm-publish-{0}" -f ([guid]::NewGuid().ToS
 $stageModule = Join-Path $stageRoot 'UTCM.Tools'
 New-Item -ItemType Directory -Path $stageModule -Force -WhatIf:$false | Out-Null
 
-$excludeDirs  = @('Tests', '.git', '.github', '.vscode')
-$excludeFiles = @('*.Tests.ps1', '*.bak', '*.tmp', '*.log')
-
-Get-ChildItem -LiteralPath $moduleDir -Force | Where-Object {
-    $_.Name -notin $excludeDirs
-} | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination $stageModule -Recurse -Force -Exclude $excludeFiles -WhatIf:$false
+foreach ($entryPoint in @('UTCM.Tools.psd1','UTCM.Tools.psm1')) {
+    Copy-Item -LiteralPath (Join-Path $moduleDir $entryPoint) -Destination $stageModule -Force -WhatIf:$false
 }
-
-# Remove any Tests/ folder that slipped in via nested copy
-Get-ChildItem -LiteralPath $stageModule -Recurse -Directory -Force |
-    Where-Object { $_.Name -eq 'Tests' } |
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue -WhatIf:$false
+foreach ($folder in @('Public','Private')) {
+    $destination = Join-Path $stageModule $folder
+    New-Item -ItemType Directory -Path $destination -Force -WhatIf:$false | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $moduleDir $folder) -Filter '*.ps1' -File |
+        Where-Object { $_.Name -notlike '*.Tests.ps1' } |
+        ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $destination -Force -WhatIf:$false
+        }
+}
+$presetDestination = Join-Path $stageModule 'Presets'
+New-Item -ItemType Directory -Path $presetDestination -Force -WhatIf:$false | Out-Null
+foreach ($presetFile in @('resource-presets.json','supported-resource-types.json')) {
+    Copy-Item -LiteralPath (Join-Path $moduleDir "Presets\$presetFile") -Destination $presetDestination -Force -WhatIf:$false
+}
 
 Write-Host ("Staged to: {0}" -f $stageModule) -ForegroundColor Gray
 

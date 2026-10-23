@@ -4,7 +4,7 @@
 #   - Get-UTCMPresetSearchPaths     (where to read JSON presets from)
 #   - Get-UTCMResourcePresets       (load + merge presets)
 #   - Resolve-UTCMResources         (resolve explicit list OR a preset)
-# Optional (warn-only validator, useful during preview):
+# Optional (warn-only validator for resource type allow-list coverage):
 #   - Get-UTCMAllowListPath
 #   - Test-UTCMResourceTypes
 # ---------------------------------------------------------------------------
@@ -17,11 +17,65 @@ function Get-UTCMPresetSearchPaths {
 
     # This script is in <ModuleRoot>\Private, so module root is the parent folder
     $moduleRoot = Split-Path -Path $PSScriptRoot -Parent
-    @(
-        (Join-Path $moduleRoot 'Presets\resource-presets.json'),
-        (Join-Path $env:ProgramData 'UTCM.Tools\resource-presets.json'),
-        (Join-Path $env:AppData     'UTCM.Tools\resource-presets.json')
+    Join-Path $moduleRoot 'Presets\resource-presets.json'
+    if ($IsWindows -and $env:ProgramData) {
+        Join-Path $env:ProgramData 'UTCM.Tools\resource-presets.json'
+    }
+    if ($env:AppData) {
+        Join-Path $env:AppData 'UTCM.Tools\resource-presets.json'
+    }
+}
+
+function Test-UTCMMachinePresetTrust {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path
     )
+
+    if (-not $IsWindows) {
+        throw 'Machine-wide UTCM presets require Windows ownership and ACL validation.'
+    }
+
+    $trusted = @(
+        'S-1-5-18'       # SYSTEM
+        'S-1-5-32-544'   # Administrators
+        'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464' # TrustedInstaller
+    )
+    $file = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($file.PSIsContainer) { throw "Machine preset '$Path' must be a file." }
+    $contentPaths = @($file.FullName, (Split-Path -Path $file.FullName -Parent))
+    $current = $file.FullName
+    while ($current) {
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Machine preset '$Path' is not trusted: reparse point '$current' is not allowed."
+        }
+
+        $acl = Get-Acl -LiteralPath $current -ErrorAction Stop
+        $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+        if ($owner -notin $trusted) {
+            throw "Machine preset '$Path' is not trusted: '$current' must be owned by Administrators, SYSTEM, or TrustedInstaller."
+        }
+
+        $unsafe = [int64][System.Security.AccessControl.FileSystemRights]'Delete, DeleteSubdirectoriesAndFiles, ChangePermissions, TakeOwnership'
+        if ($current -in $contentPaths) {
+            $unsafe = $unsafe -bor [int64][System.Security.AccessControl.FileSystemRights]::Write
+        }
+        # Generic rights may be present in an ACL without being mapped to file-system rights.
+        $unsafe = $unsafe -bor 0x10000000 -bor 0x40000000
+        foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+            if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or
+                ($rule.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly)) {
+                continue
+            }
+            if ($rule.IdentityReference.Value -notin $trusted -and
+                ([int64]$rule.FileSystemRights -band $unsafe)) {
+                throw "Machine preset '$Path' is not trusted: '$current' grants write, replacement, or permission-changing access to an untrusted principal."
+            }
+        }
+        $current = Split-Path -Path $current -Parent
+    }
+    return $true
 }
 
 # OPTIONAL: return the allow-list file for warn-only validation
@@ -68,23 +122,37 @@ function Get-UTCMResourcePresets {
 
     # Keep insertion order; OrderedDictionary exposes .Contains(key), not .ContainsKey()
     $presets = [ordered]@{} + $script:BuiltInResourcePresets
+    $modulePreset = [IO.Path]::GetFullPath((Join-Path (Split-Path $PSScriptRoot -Parent) 'Presets\resource-presets.json'))
+    $machinePreset = if ($IsWindows -and $env:ProgramData) {
+        [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'UTCM.Tools\resource-presets.json'))
+    }
 
     foreach ($path in $SearchPaths) {
-        if (Test-Path $path) {
+        if (Test-Path -LiteralPath $path) {
+            $fullPath = [IO.Path]::GetFullPath($path)
+            if ($machinePreset -and $fullPath -eq $machinePreset) {
+                Test-UTCMMachinePresetTrust -Path $fullPath | Out-Null
+            }
             try {
-                $json = Get-Content -Path $path -Raw | ConvertFrom-Json -Depth 16
+                $json = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -Depth 16 -ErrorAction Stop
                 if ($null -ne $json -and $null -ne $json.presets) {
                     $p = $json.presets
 
                     # If it's already a dictionary, use .Keys; otherwise iterate PSCustomObject properties.
                     if ($p -is [System.Collections.IDictionary]) {
                         foreach ($key in $p.Keys) {
+                            if ($fullPath -ne $modulePreset -and $presets.Contains($key)) {
+                                Write-Warning "UTCM preset '$key' is overridden by '$path'. Review the effective resource list before creating a snapshot."
+                            }
                             $presets[$key] = @(
                                 $p[$key] | ForEach-Object { [string]$_ } | Select-Object -Unique
                             )
                         }
                     } else {
                         foreach ($prop in $p.PSObject.Properties) {
+                            if ($fullPath -ne $modulePreset -and $presets.Contains($prop.Name)) {
+                                Write-Warning "UTCM preset '$($prop.Name)' is overridden by '$path'. Review the effective resource list before creating a snapshot."
+                            }
                             $presets[$prop.Name] = @(
                                 $prop.Value | ForEach-Object { [string]$_ } | Select-Object -Unique
                             )
@@ -145,7 +213,7 @@ function Test-UTCMResourceTypes {
             if ($allowed.Count -gt 0) {
                 $invalid = $Resources | Where-Object { $_ -notin $allowed }
                 if ($invalid) {
-                    Write-Warning ("The following UTCM resource type(s) may not be supported in this preview: {0}" -f ($invalid -join ', '))
+                    Write-Warning ("The following UTCM resource type(s) may not be supported by the current allow-list: {0}" -f ($invalid -join ', '))
                     return $false
                 }
             }

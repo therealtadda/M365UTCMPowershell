@@ -39,5 +39,6 @@ Describe "Compare-UTCMConfiguration (bind-time GUID validation)" {
     It "Detects drift between two valid snapshots" {
         $diff = Compare-UTCMConfiguration -BaselineSnapshotId '00000000-0000-0000-0000-000000000000' -CompareSnapshotId '11111111-1111-1111-1111-111111111111'
         $diff.Count | Should -BeGreaterThan 0
+        Should -Invoke -ModuleName UTCM.Tools Ensure-GraphConnection -Times 1 -Exactly -ParameterFilter { $ReadOnly }
     }
 }

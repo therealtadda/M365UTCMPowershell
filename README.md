@@ -1,7 +1,7 @@
 # UTCM.Tools
 
 **UTCM.Tools** is a PowerShell 7+ module for working with Microsoft Graph's
-**Unified Tenant Configuration Management (UTCM)** public preview APIs.
+**Unified Tenant Configuration Management (UTCM)** APIs through Microsoft Graph.
 
 It enables:
 
@@ -9,13 +9,18 @@ It enables:
 - Comparing snapshots to **current** configuration or to other snapshots
 - **Server-side drift monitoring** with automated periodic detection via configuration monitors
 - **Property-level drift details** showing current vs. desired values from the API
-- Detailed, sortable **HTML drift reports** and **CSV** exports
-- Exporting snapshots to **JSON**, **CSV**, and **HTML**
+- Self-contained, accessible **HTML drift reports** (search, filters, paging, baseline-vs-current property comparison) and **CSV** exports
+- Exporting snapshots to **JSON**, **CSV**, and a searchable, filterable **HTML** report
 - **Snapshot lifecycle management** including creation, listing, and deletion
 - Automation-friendly behavior with **bind-time validation**, **retry logic**, and **Pester tests**
 
-> :warning: **UTCM APIs are in public preview.** Configuration apply/restore is **not yet available**.
+> Configuration apply/restore is not exposed by the UTCM API used by this module. The module provides snapshot, compare, monitor, and report workflows.
 > This module focuses solely on **read**, **compare**, and **report** workflows.
+
+> **v2.0 safety change:** comparisons require `succeeded` snapshots by default. A
+> `partiallySuccessful` baseline is rejected before creating a current-state job.
+> `-AllowPartialComparison` is an explicit investigation-only override, not a safe
+> unattended mode. Partial results retain warnings and extraction diagnostics.
 
 ---
 
@@ -34,12 +39,20 @@ Connect-MgGraph -Scopes "ConfigurationMonitoring.Read.All"
 > **New in v1.2.0:** `ConfigurationMonitoring.Read.All` is now supported as a least-privilege
 > scope for read-only operations (listing snapshots, viewing drifts, reading monitors).
 > Read-only cmdlets like `Get-UTCMDrift`, `Get-UTCMMonitor`, and `Get-UTCMMonitoringResult`
-> automatically use this scope when calling `Ensure-GraphConnection`.
+> automatically use this scope, as do snapshot listing/retrieval/export and comparisons of
+> existing snapshots. Creating a current-state comparison snapshot still requires read/write access.
 
-> **For setup / `Initialize-UTCM`:** you also need `Application.ReadWrite.All`,
-> `AppRoleAssignment.ReadWrite.All`, `Directory.ReadWrite.All`, and
-> `RoleManagement.ReadWrite.Directory` (the last one is required to assign the
-> `Global Reader` directory role for Teams).
+> **For setup / `Initialize-UTCM`:** `Application.ReadWrite.All` and
+> `AppRoleAssignment.ReadWrite.All` are required. `RoleManagement.ReadWrite.Directory`
+> is requested only when Teams is selected, to assign the `Global Reader` directory role.
+> `Directory.ReadWrite.All` is not requested. These are the operator's delegated scopes,
+> not the workload application permissions assigned to the UTCM service principal.
+
+Existing delegated connections are checked for sufficient scopes. A missing scope produces an error
+with reconnect guidance; the module does not silently switch accounts, tenants, or environments.
+An existing read/write scope satisfies the corresponding read scope. App-only and caller-supplied
+token connections are retained; Microsoft Graph enforces their permissions. Reusing an existing
+connection does not reduce its privileges: disconnect privileged setup sessions when finished.
 
 ### UTCM Service Principal Permissions
 
@@ -81,6 +94,8 @@ workload-specific permissions. Use `Grant-UTCMWorkloadAccess` to assign them.
 | Module | Required For |
 |---|---|
 | `Microsoft.Graph.Authentication` | All operations (Graph API calls) |
+| `Microsoft.Graph.Applications` | Service-principal setup, workload app-role grants, setup inspection |
+| `Microsoft.Graph.Identity.DirectoryManagement` | Teams directory-role setup |
 | `ExchangeOnlineManagement` | `Grant-UTCMWorkloadAccess -Workloads Exchange` or `SecurityAndCompliance` (EXO RBAC setup) |
 
 ---
@@ -117,9 +132,9 @@ Import-Module UTCM.Tools -Force
 Get-Command -Module UTCM.Tools
 ```
 
-Expected: 18 exported functions.
+Expected: 20 exported functions.
 
-All 18 functions include full comment-based help:
+All 20 functions include full comment-based help:
 
 ```powershell
 Get-Help New-UTCMSnapshot -Full
@@ -135,7 +150,7 @@ UTCM.Tools/
 +-- UTCM.Tools.psd1            # Module manifest
 +-- UTCM.Tools.psm1            # Root module (strict mode + loader)
 |
-+-- Public/                    # Exported functions (18)
++-- Public/                    # Exported functions (20)
 |   +-- Enable-UTCM.ps1
 |   +-- Grant-UTCMWorkloadAccess.ps1
 |   +-- Initialize-UTCM.ps1
@@ -152,6 +167,8 @@ UTCM.Tools/
 |   +-- Get-UTCMDrift.ps1
 |   +-- New-UTCMMonitor.ps1
 |   +-- Get-UTCMMonitor.ps1
+|  +-- Update-UTCMMonitor.ps1
+|  +-- Remove-UTCMMonitor.ps1
 |   +-- Get-UTCMMonitoringResult.ps1
 |   +-- ConvertTo-UTCMMonitorResource.ps1
 |
@@ -164,6 +181,9 @@ UTCM.Tools/
 |   +-- Resolve-OutputPath.ps1
 |   +-- Validate-Guid.ps1
 |   +-- HtmlEncode.ps1
+|   +-- Report.Model.ps1         # Report data shaping (pairing, property diff, items)
+|   +-- Report.Html.ps1          # HTML builders, document shell, CSP hash
+|   +-- Report.Assets.ps1        # Shared CSS and client script
 |   +-- Write-Log.ps1
 |
 +-- Presets/                   # JSON-backed resource presets & allow-list
@@ -183,6 +203,10 @@ UTCM.Tools/
     +-- New-UTCMMonitor.Tests.ps1
     +-- New-UTCMSnapshot.Tests.ps1
     +-- Remove-UTCMSnapshot.Tests.ps1
+    +-- Report.Html.Tests.ps1
+    +-- Report.Model.Tests.ps1
+    +-- Report.Properties.Tests.ps1
+    +-- Update-UTCMMonitor.Tests.ps1
 ```
 
 ---
@@ -192,13 +216,16 @@ UTCM.Tools/
 ```powershell
 # 1. Bootstrap UTCM (one-time)
 Import-Module UTCM.Tools -Force
-Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All","Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All","Directory.ReadWrite.All","RoleManagement.ReadWrite.Directory"
 Initialize-UTCM -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
 
-# 2. Create a baseline snapshot
+# 2. End the privileged setup session and connect for normal UTCM operations
+Disconnect-MgGraph
+Connect-MgGraph -Scopes "ConfigurationMonitoring.ReadWrite.All"
+
+# 3. Create a baseline snapshot
 $snap = New-UTCMSnapshot -DisplayName "Baseline March 2026"
 
-# 3. Generate drift report against current tenant state
+# 4. Generate drift report against current tenant state
 Get-UTCMTenantDriftReport -SnapshotId $snap.id -CompareToCurrent -Dashboard -OutputPath .\Reports -NoPrompt
 ```
 
@@ -252,7 +279,17 @@ One-shot wrapper: runs `Enable-UTCM` then `Grant-UTCMWorkloadAccess`.
 
 ```powershell
 Initialize-UTCM -Workloads Entra,Exchange,Intune,SecurityAndCompliance,Teams
+
+# Offline preview: no Graph/Exchange connection or tenant changes
+Initialize-UTCM -Workloads Entra,Teams -WhatIf
+
+# Explicitly approved unattended setup
+Initialize-UTCM -Workloads Entra -Confirm:$false
 ```
+
+`Initialize-UTCM`, `Enable-UTCM`, and `Grant-UTCMWorkloadAccess` use high-impact confirmation.
+Initialization obtains all selected setup scopes before making changes and confirms the overall
+operation once. The default workload set remains all five workloads; select a subset to limit grants.
 
 ---
 
@@ -289,7 +326,34 @@ New-UTCMSnapshot -DisplayName "Pre Change Audit 20260313"
 > Any special characters are automatically stripped before submission.
 
 Available presets: `ExchangeCore`, `EntraCore`, `TeamsCore`, `IntuneCore`, `SecCompCore`,
-`TenantCore`, `TeamsCore+Voice`, `IntuneCore+Roles`, `SecurityCore`.
+`TenantCore`, `TeamsCore+Voice`, `IntuneCore+Roles`, `SecurityCore`, `AllSupported`.
+
+**All-supported snapshots (v1.5.0):** `AllSupported` is an explicit opt-in to the **244
+resource types** in the reviewed snapshot catalogue: Entra 36, Exchange 66, Intune 67,
+Security/Compliance 24, and Teams 51. `TenantCore` remains the default, and the existing
+presets are unchanged.
+
+```powershell
+# Inspect the effective list locally, including any configured preset overrides
+Get-UTCMPreset -Name AllSupported
+Get-UTCMPreset -Name AllSupported -Raw
+
+# With an appropriately authorized Graph connection, create a broad snapshot
+New-UTCMSnapshot -Preset AllSupported -DisplayName "All Supported Baseline"
+```
+
+The catalogue is a shipped, reviewed list, **not runtime discovery**. It excludes 27
+identifiers explicitly rejected by the v1.0 snapshot service during validation on
+2026-10-21 (UTC). Request acceptance does not guarantee successful extraction of every
+type; workload permissions and available resource instances still matter. A broad
+snapshot can consume substantial extraction quota and does not grant workload access.
+For current-state comparisons, opt in with `Get-UTCMTenantDriftReport -CompareToCurrent -ComparePreset AllSupported`;
+without a comparison override, the baseline's resource types remain the default.
+
+See [Unsupported snapshot resource types and coverage notes](UNSUPPORTED-RESOURCE-TYPES.md)
+for every exclusion, the evidence boundaries, maintenance guidance, and Microsoft Learn
+references. The local warn-only allow-list now covers the same 244 types; it does not
+override service-side validation.
 
 ---
 
@@ -318,7 +382,13 @@ Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems       # downloads and attaches
 Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems -AsJson
 ```
 
-> Use `-IncludeDetails` on `partiallySuccessful` snapshots to see per-resource error messages.
+> Use `-IncludeDetails` on `partiallySuccessful` snapshots to see the service's extraction
+> error messages. `New-UTCMSnapshot` now returns this rich terminal metadata and warns on
+> partial completion; retrieving or exporting a partial artifact remains supported.
+> Microsoft documents that `resources`, `resourceLocation`, and `errorDetails`
+> [require explicit `$select`](https://learn.microsoft.com/en-us/graph/api/resources/configurationsnapshotjob?view=graph-rest-1.0).
+> Job reads select these fields when needed and request evolvable enum members so
+> `partiallySuccessful` is not hidden behind `unknownFutureValue`.
 
 **Item normalization:** `-IncludeItems` handles both UTCM payload shapes and returns a
 consistent `configurationItems` array where each item has `id`, `displayName`, `type`, and
@@ -341,7 +411,24 @@ Lists available resource presets or inspects a specific preset.
 Get-UTCMPreset                          # list all preset names
 Get-UTCMPreset -Name ExchangeCore       # show resources in preset
 Get-UTCMPreset -Name TenantCore -Raw    # raw string array
+Get-UTCMPreset -Name AllSupported -Raw  # comprehensive reviewed snapshot catalogue
 ```
+
+Preset precedence remains **built-in defaults → shipped JSON → machine override → user override**.
+On Windows the override locations are `%ProgramData%\UTCM.Tools\resource-presets.json` and
+`%AppData%\UTCM.Tools\resource-presets.json`.
+
+Machine-wide overrides are loaded only after ownership and ACL validation. The file and its containing
+directory must be owned by Administrators, SYSTEM, or TrustedInstaller, with no write grants to other
+principals. Ancestors must also have trusted ownership and must not permit untrusted replacement or
+permission changes. Reparse points are rejected. An administrator must provision this location securely;
+the module never changes filesystem permissions automatically. Validation is conservative (an untrusted
+write allow-rule is rejected even if another rule denies it), and inability to establish trust stops
+preset loading with an error rather than silently falling back.
+
+Per-user overrides retain their existing behavior. Overrides that replace an existing preset emit a
+warning; inspect the effective resources before taking a snapshot. Absent Windows environment paths
+are omitted rather than passed to `Join-Path`; no new non-Windows override locations are introduced.
 
 ---
 
@@ -355,7 +442,25 @@ Compare-UTCMConfiguration -BaselineSnapshotId <GUID> -CompareSnapshotId <GUID>
 
 # Compare baseline to current tenant state
 Compare-UTCMConfiguration -BaselineSnapshotId <GUID>
+
+# Investigation only: explicitly accept incomplete extraction, with warnings
+Compare-UTCMConfiguration -BaselineSnapshotId <GUID> -CompareSnapshotId <GUID> `
+  -AllowPartialComparison
 ```
+
+Default current-state scope comes from the baseline job's original **`resources` request
+list**, not just the types that returned instances. Previously empty types are included,
+and a successful snapshot with no items can still be compared. If requested-scope metadata
+is unavailable, the command fails instead of silently narrowing coverage; use
+`Get-UTCMTenantDriftReport -CompareResources ...` or `-ComparePreset ...` to choose an
+explicit scope.
+
+Both comparison entry points reject partial snapshots by default, including when comparing
+two existing IDs. The override admits only `partiallySuccessful`, never failed, running,
+or unknown statuses. Its warning is emitted even for an empty diff: missing/added rows can
+be extraction failures, and **no differences observed does not prove absence of drift**.
+`-NoPrompt` does not bypass these checks. Original scope is not proof of extraction success;
+a requested type with no instances is not automatically a failed type.
 
 ---
 
@@ -394,43 +499,108 @@ Export-UTCMSnapshot -Snapshot $snap -Path .\exports -SplitByResourceType
 **Output formats:**
 - **JSON** — `configurationItems` array (or full payload with `-Raw`)
 - **CSV** — One row per resource with `Id`, `DisplayName`, `Type`, `Workload`, and `Data` (full
-  configuration JSON, compact). Matches the JSON export in fidelity.
-- **HTML** — Self-contained sortable dashboard with workload summary badges and
-  expandable per-item settings showing the full configuration JSON (Expand All / Collapse All)
+  configuration JSON, compact). Formula-like text cells are protected as described below; use JSON
+  when exact original text values are required.
+- **HTML** — Self-contained report (see [HTML reports](#html-reports)): summary cards and workload distribution,
+  search across ID, name, type, workload **and property values**, workload/type filters, items grouped by
+  workload (or a flat paged view), column chooser, and expandable per-item configuration JSON. Empty snapshots
+  (for example a `partiallySuccessful` job with no data) show an explicit message.
+
+**Partial exports:** every format (including split JSON and raw artifacts) retains the job's
+status, original requested `resources`, and complete `errorDetails` in
+`Snapshot-{jobId}.diagnostics.json` beside the export. Partial HTML also shows an encoded
+extraction-warning panel. The sidecar is separate from the existing JSON/CSV data shapes
+and is not added to the returned snapshot-file path list. Use `-Overwrite` to replace an
+existing diagnostics file. Treat diagnostics as confidential tenant data too.
+Empty snapshots write valid `[]` JSON and a header-only CSV, rather than empty/invalid data
+files; `-Raw` preserves top-level array shape, including zero or one resource.
 
 ---
 
 ### `New-UTCMDriftReport`
 
-Generates a paginated HTML dashboard and CSV from a diff result.
+Generates a self-contained HTML report and a CSV from a diff result.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `-Diff` | *(mandatory)* | Output from `Compare-UTCMConfiguration` |
+| `-Diff` | *(mandatory)* | Output from `Compare-UTCMConfiguration` (may be empty) |
 | `-SnapshotId` | *(mandatory)* | Baseline snapshot GUID (used in report title) |
 | `-OutputPath` | `.\` | Output directory |
-| `-CurrentItems` | — | Array of current-state `configurationItems` for full-state page |
+| `-CurrentItems` | — | Array of current-state `configurationItems` for the full-state section |
+| `-SnapshotDiagnostics` | — | Baseline and comparison job metadata; supplied automatically by the end-to-end workflow |
+| `-Open` | — | Open the HTML report in the default browser |
 
-**HTML output has two pages:**
-1. **Drift Summary** — Added, Removed, and Changed items with expandable normalised-data details per row
-2. **Full Current State** — Every item from the current snapshot with expandable settings (shown when `-CurrentItems` is supplied)
+**What the HTML report contains:**
+1. **Drift summary** — cards for *Resources with drift*, *Changed*, *Missing in current* and *Added in current*,
+   a workload and resource-type distribution, and a searchable, filterable, sortable, paged table.
+   A resource that was **modified** is reported **once as Changed**, with a **Property / Baseline / Current**
+   comparison; the full JSON is a secondary *Raw JSON* detail. If nothing drifted, the report says
+   **"No drift detected"** for a complete comparison. Known-incomplete comparisons instead
+   show a prominent warning and **"No differences observed in the extracted data"**.
+2. **Full current state** — every item from the current snapshot (shown when `-CurrentItems` is supplied).
 
-Both pages include sortable columns, Expand All / Collapse All buttons, and cross-page navigation links.
-The expandable per-row detail contains the full configuration JSON (same fidelity as
-`Export-UTCMSnapshot`), and the companion CSV's `NormalizedData` column carries the full
-normalized payload for each drifted row.
+> **Counts:** `Compare-UTCMConfiguration` represents a modified resource as two rows (baseline and current).
+> The report pairs them, so `Added`, `Missing` and `Changed` count *resources*. The companion CSV
+> still has one row per diff row (`Id`, `DisplayName`, `Type`, `DriftType`, `NormalizedData`);
+> formula-like text cells are protected for spreadsheet safety.
 
 ```powershell
 $diff = Compare-UTCMConfiguration -BaselineSnapshotId <GUID>
 New-UTCMDriftReport -Diff $diff -SnapshotId <GUID> -OutputPath .\Reports
 
-# Include full current state page
+# Include full current state
 $current = Get-UTCMSnapshot -SnapshotId <CURRENT_GUID> -IncludeItems
 New-UTCMDriftReport -Diff $diff -SnapshotId <GUID> -OutputPath .\Reports `
   -CurrentItems $current.configurationItems
 ```
 
 Returns a `PSCustomObject` with `HtmlPath`, `CsvPath`, `Added`, `Missing`, `Changed`, and `Opened` properties.
+Available job metadata is also written to `UTCM-Drift-Report-{baselineId}.diagnostics.json`.
+The end-to-end workflow supplies both jobs; when manually rendering an explicitly allowed
+partial diff, pass both detailed jobs with `-SnapshotDiagnostics @($baseline, $current)`.
+This preserves both statuses, original scopes, and service errors without changing CSV
+columns or the return object. The sidecar is refreshed with each report so an older partial
+run cannot leave stale diagnostics beside a newer complete report.
+
+---
+
+## HTML reports
+
+Both HTML outputs (`New-UTCMDriftReport`, `Export-UTCMSnapshot -Format HTML`) share one design.
+
+| Area | Behavior |
+|---|---|
+| **Self-contained** | One file. No libraries, CDN, fonts or network calls. A Content-Security-Policy pins the report's own script and style by hash and blocks everything else. |
+| **Find things** | Search (ID, name, type, workload and property values), status chips, workload and type filters, sorting, paging (25/50/100/250 rows), expand/collapse. |
+| **Read things** | Status is shown by icon **and** text **and** border style, never color alone. Light and dark themes follow the system setting. |
+| **Tools** | Column chooser, **Download** CSV/JSON (filtered or all), **Copy** buttons, **Copy link** (filters, sort and columns are kept in the URL after `#`). |
+| **Accessible** | Semantic tables, labelled controls, visible focus, keyboard operable, screen-reader result announcements, responsive down to 320 px, forced-colors support. |
+| **Print / PDF** | Toolbar and raw JSON are hidden; the current filter is printed; changed rows print a compact "property: old → new" summary. |
+| **Without JavaScript** | All rows and details are readable; search, filters and paging need JavaScript. |
+
+**Downloads from the report:** the drift CSV matches the CSV file the cmdlet writes. Snapshot CSV uses the same
+columns as the CSV export (`Id`, `DisplayName`, `Type`, `Workload`, `Data`); the JSON download contains the
+normalized `{ id, displayName, type, workload, data }` items.
+
+**Spreadsheet safety (v1.4.1):** both cmdlet CSV exports and browser CSV downloads prefix text cells
+starting with `=`, `+`, `-`, or `@` (including after leading ASCII spaces, tabs, or line breaks), or
+starting with a tab/CR/LF, with an apostrophe. CSV quoting alone does not prevent formula interpretation.
+Column names, row counts, and ordinary cell values are unchanged, but potentially dangerous cells
+intentionally differ from their source text. JSON downloads/exports, displayed values, and copy buttons
+retain original data. Existing HTML files must be regenerated to receive this protection.
+Report metadata attributes encode carriage returns, line feeds, and tabs as character references,
+so HTML parsing does not change their values in browser CSV/JSON downloads.
+
+**Large snapshots:** measured on a developer laptop, a 5,000-item snapshot is about 4 MB and a 10,000-item
+snapshot about 8.5 MB (generation takes roughly 7 s per 10,000 items). Chromium-based browsers open them in
+under a second; Firefox takes about 3 s for 5,000 items and about 10 s for 10,000 items. Groups start collapsed
+above 500 items and rows are paged. For analysis at scale, prefer the CSV or JSON export.
+
+**Browser support:** current versions of Edge, Chrome and Firefox. Safari is supported on a best-effort basis
+(verified only with Playwright's WebKit build, not on macOS/iOS). Safari may log harmless Content-Security-Policy
+console messages for its native drop-down lists.
+
+**Privacy:** reports contain full tenant configuration. Treat them as confidential; the report header says so.
 
 ---
 
@@ -440,7 +610,14 @@ End-to-end drift pipeline: select baseline -> compare to current -> generate rep
 
 When `-CompareToCurrent` is used, the function creates a fresh "current state" snapshot
 and compares it to the baseline. By default it uses the **same resource types** as the
-baseline. You can override this with `-ComparePreset` or `-CompareResources`.
+baseline's original request, **including types with no captured instances**. You can override
+this with `-ComparePreset` or `-CompareResources`; explicit resources take precedence.
+If original scope is unavailable, supply one of these selectors explicitly.
+
+Both baseline and current extraction must succeed. A partial baseline prevents the second
+job from being created. `-AllowPartialComparison` permits investigative comparisons only:
+warnings, an incomplete-report banner, and diagnostics remain visible even when no
+differences are found. Downloading/exporting the baseline alone does not require this override.
 
 In interactive mode (no `-NoPrompt`), a numbered menu of available presets is shown so
 you can pick a different resource scope for the comparison.
@@ -451,6 +628,7 @@ you can pick a different resource scope for the comparison.
 | `-CompareToCurrent` | — | Create a current-state snapshot and compare |
 | `-ComparePreset` | — | Named preset for the comparison snapshot |
 | `-CompareResources` | — | Explicit resource identifiers for comparison |
+| `-AllowPartialComparison` | off | Investigation-only override for partial extraction; results remain conspicuously incomplete |
 | `-Dashboard` | — | Generate HTML drift report |
 | `-ExportJson` | — | Export baseline snapshot to JSON |
 | `-OutputPath` | `.\` | Output directory |
@@ -484,6 +662,10 @@ Get-UTCMTenantDriftReport `
   -OutputPath .\Reports `
   -NoPrompt
 ```
+
+For an intentionally partial investigation, add `-AllowPartialComparison` to the command.
+Do not use the resulting counts, missing rows, or empty diff as definitive unattended
+drift conclusions. Review the diagnostics and obtain successful snapshots before doing so.
 
 ---
 
@@ -701,12 +883,19 @@ Import-Module UTCM.Tools -Force
 
 ## Error Handling
 
-- **4xx errors** fail immediately (no retry) with full response body extraction
+- **4xx errors other than 429** fail immediately (no retry) with full response body extraction
 - **429 / 503** retried with exponential backoff respecting `Retry-After` header
+- **Exhausted retries** throw a terminating error, including for 429/503; the final attempt does not sleep again
 - **Snapshot job failures** dump full job JSON as a warning for diagnosis
 - **`partiallySuccessful`** snapshots return successfully -- use `-IncludeDetails` to inspect per-resource `errorDetails`
 - Bind-time GUID validation on all snapshot ID parameters
-- Safe `@odata.nextLink` pagination (handles missing property without errors)
+- Pagination and snapshot download URLs must use HTTPS and the connected Graph environment's host/port;
+  user-info, fragments, network-path URLs, and external hosts are rejected before requesting them
+- All snapshot artifact downloads use Graph authentication and the shared retry helper; external
+  storage URLs are deliberately unsupported pending verification of a service contract
+- Resource-type filters escape OData string literals before URL encoding
+- Directory-role assignment errors are not reported as successful duplicates unless the intended
+  membership is verified after the failure
 
 ---
 
@@ -747,6 +936,61 @@ Install-Module Pester -Scope CurrentUser
 Import-Module .\UTCM.Tools\UTCM.Tools.psd1 -Force
 Invoke-Pester -Path .\UTCM.Tools\Tests -CI
 ```
+
+Tests write only to Pester's `$TestDrive`. An opt-in report performance test runs when `$env:UTCM_PERF` is set.
+When Node.js is available, the suite also checks the generated client script's syntax and browser/PowerShell
+CSV protection parity using only Node's built-in modules; that check is skipped when Node is unavailable.
+Generated `testResults.xml` and `TestResults/` are ignored. Publishing stages only the module manifest,
+root module, top-level Public/Private `.ps1` files (excluding test scripts), and the two shipped preset
+JSON files, rather than copying arbitrary files from the module directory.
+
+---
+
+## Read-only live-tenant smoke test
+
+[Test-UTCMReadOnly.ps1](./Test-UTCMReadOnly.ps1) is a repository-side validation script,
+not an exported module command or part of the Gallery package. Preparing or running its
+Pester tests does not contact a tenant. Running the script itself makes authenticated
+read requests, so run it only when authorized to access the target tenant.
+
+Use an **existing Graph connection in the same PowerShell session** and supply the
+expected directory tenant **GUID**, not a domain name. If a connection is needed,
+establish it explicitly yourself; the script never signs in or reconnects:
+
+```powershell
+# Replace this example GUID with the intended tenant's directory (tenant) ID.
+$tenantId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+
+# Optional manual sign-in; omit if already connected to the intended tenant.
+Connect-MgGraph -TenantId $tenantId -Scopes 'ConfigurationMonitoring.Read.All' -ContextScope Process -NoWelcome
+
+$result = .\Test-UTCMReadOnly.ps1 -TenantId $tenantId
+$result.Checks | Format-Table Name, Status, Count
+
+# Optional: download one existing completed snapshot and count its configuration items.
+.\Test-UTCMReadOnly.ps1 -TenantId $tenantId -SnapshotId $existingSnapshotId
+```
+
+The script imports this checkout's module and checks the tenant and environment before
+each read. A missing connection, tenant/environment mismatch, missing delegated scope,
+or API error terminates validation rather than changing the connection or returning a
+successful summary. Existing app-only and caller-supplied-token sessions are retained;
+Graph enforces their permissions. Reusing a privileged connection does not reduce its
+privileges, although the script issues only read operations.
+
+Default checks read snapshot jobs, monitors, monitoring results from the last seven days,
+and drifts. Snapshot jobs, results, and drifts are limited to five returned rows **after**
+the module follows all matching pages; this is not a network-request limit. Monitors
+are counted without that client-side limit.
+
+Output includes tenant/environment/authentication type, module version, UTC timestamp,
+and per-check status/counts, not resource names, account details, tokens, or configuration
+values. `Passed` means the read succeeded; zero rows are valid and do not prove that
+workload setup or monitor runs are healthy. Artifact validation is explicitly `Skipped`
+unless `-SnapshotId` is supplied. That opt-in uses authenticated Graph downloads and the
+module's temporary-file cleanup; external artifact hosts are rejected. The script never
+creates/deletes snapshots, changes monitors, grants permissions, or generates a current-state
+snapshot. It does not save a report or perform Safari-device validation.
 
 ---
 

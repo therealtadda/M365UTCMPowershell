@@ -1,6 +1,6 @@
 # Contributing to UTCM.Tools
 
-Thanks for your interest in contributing! This project provides a PowerShell 7+ module to work with Microsoft Graph’s Unified Tenant Configuration Management (UTCM) APIs (public preview). The goal is reliable **snapshot**, **compare**, and **report** workflows with strong engineering practices.
+Thanks for your interest in contributing! This project provides a PowerShell 7+ module to work with Microsoft Graph’s Unified Tenant Configuration Management (UTCM) APIs. The goal is reliable **snapshot**, **compare**, and **report** workflows with strong engineering practices.
 
 ---
 

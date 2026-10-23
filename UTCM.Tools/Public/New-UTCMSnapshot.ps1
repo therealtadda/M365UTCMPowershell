@@ -7,8 +7,13 @@ function New-UTCMSnapshot {
         Submits a createSnapshot request to the UTCM API and polls until the job reaches
         a terminal status (succeeded, failed, or partiallySuccessful).
         Resources can be specified explicitly or via a JSON-backed preset.
+        Terminal metadata explicitly includes resources, resourceLocation and errorDetails.
+        Partial completion emits a warning but remains available for retrieval and export.
 
         DisplayName is auto-sanitized to meet the API constraint (letters, numbers, and spaces only).
+
+        Snapshot artifacts are retained for seven days. A tenant can have up to 12
+        visible snapshot jobs and may extract up to 20,000 resources per month.
 
     .PARAMETER PollingIntervalSeconds
         Seconds between status polls while the job runs. Default: 10.
@@ -18,6 +23,9 @@ function New-UTCMSnapshot {
 
     .PARAMETER Preset
         Named preset from Presets/resource-presets.json. Default: TenantCore.
+        AllSupported explicitly selects every type in the reviewed snapshot catalogue,
+        excluding known service-rejected types. Workload permissions are still required;
+        selecting this preset does not grant permissions or guarantee complete extraction.
 
     .PARAMETER DisplayName
         Friendly snapshot name (alphanumeric + spaces only; special characters stripped).
@@ -26,13 +34,16 @@ function New-UTCMSnapshot {
         Snapshot description. Default: "Baseline snapshot".
 
     .OUTPUTS
-        The completed snapshot job object (id, status, resourceLocation).
+        The completed snapshot job object, including id, status, resources, resourceLocation and errorDetails.
 
     .EXAMPLE
         New-UTCMSnapshot
 
     .EXAMPLE
         New-UTCMSnapshot -Preset ExchangeCore -DisplayName "Exchange Baseline"
+
+    .EXAMPLE
+        New-UTCMSnapshot -Preset AllSupported -DisplayName "All Supported Baseline"
 
     .EXAMPLE
         New-UTCMSnapshot -Resources 'microsoft.exchange.sharedmailbox','microsoft.exchange.transportrule'
@@ -85,15 +96,14 @@ function New-UTCMSnapshot {
     }
 
     # --- Start the snapshot job (UTCM action endpoint) ---
-    # Correct endpoint: POST /beta/admin/configurationManagement/configurationSnapshots/createSnapshot
+    # Correct endpoint: POST /v1.0/admin/configurationManagement/configurationSnapshots/createSnapshot
     $job = Invoke-GraphRequestWithRetry -Method 'POST' -Uri $script:CreateSnapshotActionUri -Body $body
 
     # --- Poll until terminal status (notStarted|running -> succeeded|failed|partiallySuccessful) ---
     do {
         Start-Sleep -Seconds $PollingIntervalSeconds
 
-        # Job read endpoint: GET /beta/admin/configurationManagement/configurationSnapshotJobs/{id}
-        $status = Invoke-GraphRequestWithRetry -Method 'GET' -Uri "$($script:SnapshotJobsUri)/$($job.id)"
+        $status = Get-UTCMSnapshot -SnapshotId $job.id -IncludeDetails
 
         if (Get-Command -Name Write-Log -ErrorAction SilentlyContinue) {
             Write-Log -Message "Snapshot status: $($status.status)" -Color Gray
@@ -102,33 +112,21 @@ function New-UTCMSnapshot {
     while ($status.status -in @('notStarted','running'))
 
     # --- Terminal evaluation ---
-    if ($status.status -notin @('succeeded','partiallySuccessful')) {
-        # Extract error details — Invoke-MgGraphRequest returns a hashtable,
-        # so try both hashtable key access and PSObject property access.
-        $errorInfo = @()
-        try {
-            $ed = $null
-            if ($status -is [System.Collections.IDictionary] -and $status.ContainsKey('errorDetails')) {
-                $ed = $status['errorDetails']
-            } elseif ($status.PSObject.Properties.Name -contains 'errorDetails') {
-                $ed = $status.errorDetails
-            }
-            if ($ed -and $ed.Count -gt 0) {
-                $errorInfo += "errorDetails: $($ed -join '; ')"
-            }
-        } catch { <# ignore #> }
-
-        # Dump the full job status so we can diagnose server-side failures
-        $statusDump = try { $status | ConvertTo-Json -Depth 5 -Compress } catch { $status.ToString() }
-        Write-Warning "Full snapshot job response: $statusDump"
-
-        throw ("Snapshot job failed with status '{0}'. {1}" -f $status.status, ($errorInfo -join ' | '))
+    $diagnostic = Get-UTCMSnapshotDiagnostic -Snapshot $status
+    if ($diagnostic.status -notin @('succeeded','partiallySuccessful')) {
+        throw ("Snapshot job '{0}' failed with status '{1}'. {2}" -f
+            $diagnostic.id, $diagnostic.status, $diagnostic.errorSummary)
+    }
+    if ($diagnostic.status -eq 'partiallySuccessful') {
+        Write-Warning (("Snapshot job '{0}' completed partiallySuccessful; extraction is incomplete. {1} " +
+            "Keep the job metadata or export the snapshot to retain diagnostics. Do not treat missing data as drift.") -f
+            $diagnostic.id, $diagnostic.errorSummary)
     }
 
     if (Get-Command -Name Write-Log -ErrorAction SilentlyContinue) {
-        Write-Log -Message ("Snapshot completed with status '{0}'. ResourceLocation={1}" -f $status.status, $status.resourceLocation) -Color Green
+        $color = if ($diagnostic.status -eq 'succeeded') { 'Green' } else { 'Yellow' }
+        Write-Log -Message ("Snapshot job '{0}' completed with status '{1}'." -f $status.id, $status.status) -Color $color
     }
 
-    # Return the final job (contains id, status, and resourceLocation)
     return $status
 }
