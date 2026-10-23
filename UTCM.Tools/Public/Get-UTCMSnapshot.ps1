@@ -69,23 +69,24 @@ function Get-UTCMSnapshot {
 
     # 2) GET the job
     $uri = "$($script:SnapshotJobsUri)/${SnapshotId}?${qs}"
-    $job = Invoke-GraphRequestWithRetry -Method 'GET' -Uri $uri
+    $job = Invoke-GraphRequestWithRetry -Method 'GET' -Uri $uri -Headers @{ Prefer = 'include-unknown-enum-members' }
 
     # 3) If the caller wants items, download from resourceLocation (for completed jobs)
     if ($IncludeItems) {
         # Validate job status first
-        if ($job.status -eq 'failed') {
-            $err = ($job.PSObject.Properties.Name -contains 'errorDetails') ? ($job.errorDetails -join '; ') : 'n/a'
-            throw ("Snapshot job '{0}' failed. Errors: {1}" -f $job.id, $err)
+        $diagnostic = Get-UTCMSnapshotDiagnostic -Snapshot $job
+        if ($diagnostic.status -eq 'failed') {
+            throw ("Snapshot job '{0}' failed. Errors: {1}" -f $diagnostic.id, $diagnostic.errorSummary)
         }
-        if ($job.status -notin @('succeeded','partiallySuccessful')) {
-            throw ("Snapshot job '{0}' is not completed yet. Current status: '{1}'." -f $job.id, $job.status)
+        if ($diagnostic.status -notin @('succeeded','partiallySuccessful')) {
+            throw ("Snapshot job '{0}' is not completed yet. Current status: '{1}'." -f $diagnostic.id, $diagnostic.status)
         }
-        if (-not $job.resourceLocation -or [string]::IsNullOrWhiteSpace($job.resourceLocation)) {
+        $resourceLocation = [string](Get-UTCMObjectField $job @('resourceLocation'))
+        if ([string]::IsNullOrWhiteSpace($resourceLocation)) {
             throw "Snapshot job '$($job.id)' does not expose resourceLocation; cannot retrieve items."
         }
 
-        $snapshotDate = if ($job.completedDateTime) { $job.completedDateTime } else { $job.createdDateTime }
+        $snapshotDate = Get-UTCMObjectField $job @('completedDateTime','createdDateTime')
         try {
             $retentionDate = [datetimeoffset]::Parse([string]$snapshotDate, [cultureinfo]::InvariantCulture)
             if ($retentionDate.UtcDateTime -lt [datetime]::UtcNow.AddDays(-7)) {
@@ -98,10 +99,10 @@ function Get-UTCMSnapshot {
         # Download to temp, parse as JSON, attach configurationItems
         $tmp = [System.IO.Path]::GetTempFileName()
         try {
-            Invoke-GraphRequestWithRetry -Method GET -Uri $job.resourceLocation -OutputFilePath $tmp
+            Invoke-GraphRequestWithRetry -Method GET -Uri $resourceLocation -OutputFilePath $tmp
             $raw  = Get-Content -LiteralPath $tmp -Raw
             $json = $null
-            try { $json = $raw | ConvertFrom-Json -ErrorAction Stop } catch { $json = $null }
+            try { $json = $raw | ConvertFrom-Json -NoEnumerate -ErrorAction Stop } catch { $json = $null }
 
             if ($null -eq $json) {
                 throw "Downloaded artifact is not JSON; cannot extract items."
@@ -121,7 +122,7 @@ function Get-UTCMSnapshot {
             # Normalize items so downstream consumers (Compare-UTCMConfiguration,
             # New-UTCMDriftReport, Export-UTCMSnapshot) get a consistent shape with
             # id/displayName/type/data regardless of the raw payload variant.
-            $normalizedItems = foreach ($it in $items) {
+            $normalizedItems = @(foreach ($it in $items) {
                 $idVal = $null
                 if ($it.PSObject.Properties.Name -contains 'id' -and $it.id) { $idVal = [string]$it.id }
                 elseif ($it.PSObject.Properties.Name -contains 'resourceInstanceIdentifier' -and $it.resourceInstanceIdentifier) { $idVal = [string]$it.resourceInstanceIdentifier }
@@ -148,7 +149,7 @@ function Get-UTCMSnapshot {
                     type        = $typeVal
                     data        = $dataVal
                 }
-            }
+            })
 
             # Attach both the normalized items and the raw payload for power users
             if ($job.PSObject.Properties.Name -contains 'configurationItems') {

@@ -1,7 +1,7 @@
 @{
     # Core identity
     RootModule        = 'UTCM.Tools.psm1'
-    ModuleVersion     = '1.5.0'
+    ModuleVersion     = '2.0.0'
     GUID              = 'c8b6d337-2a88-4f7b-b7c0-3e5d21df310a'
     Author            = 'Tadd Axon'
     CompanyName       = 'tadda.org'
@@ -68,6 +68,13 @@
             License    = 'BSD-3-Clause'
 
             ReleaseNotes = @'
+2.0.0
+- Safety change: comparisons now reject incomplete snapshots by default, before creating a current-state job when the baseline is already partial. Use -AllowPartialComparison only for investigation; warnings and incomplete report banners prevent clean drift conclusions.
+- Default comparison scope uses the baseline's original requested resources, including empty types. Missing requested-scope metadata requires an explicit comparison preset/resource list rather than silently narrowing coverage.
+- Current-state snapshots share creation, detailed job projection and artifact normalization with the public commands; job reads request evolvable enum members and select resourceLocation/resources/errorDetails.
+- Partial creation/export emits warnings, preserves service errors, and writes diagnostics JSON beside exported snapshots and incomplete drift reports without changing snapshot JSON or CSV shapes.
+- Empty successful snapshots compare correctly and export valid empty JSON/header-only CSV; raw top-level arrays retain their shape. Baseline-only Compare-UTCMConfiguration now selects its documented current-state parameter set.
+
 1.5.0
 - Added the opt-in AllSupported snapshot preset with 244 reviewed resource types across all five workload namespaces; existing presets and the TenantCore default are unchanged.
 - Expanded the warn-only resource allow-list to match the comprehensive preset while retaining every previously recognized type.

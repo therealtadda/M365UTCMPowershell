@@ -17,6 +17,11 @@ It enables:
 > Configuration apply/restore is not exposed by the UTCM API used by this module. The module provides snapshot, compare, monitor, and report workflows.
 > This module focuses solely on **read**, **compare**, and **report** workflows.
 
+> **v2.0 safety change:** comparisons require `succeeded` snapshots by default. A
+> `partiallySuccessful` baseline is rejected before creating a current-state job.
+> `-AllowPartialComparison` is an explicit investigation-only override, not a safe
+> unattended mode. Partial results retain warnings and extraction diagnostics.
+
 ---
 
 ## Permissions
@@ -377,7 +382,13 @@ Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems       # downloads and attaches
 Get-UTCMSnapshot -SnapshotId <GUID> -IncludeItems -AsJson
 ```
 
-> Use `-IncludeDetails` on `partiallySuccessful` snapshots to see per-resource error messages.
+> Use `-IncludeDetails` on `partiallySuccessful` snapshots to see the service's extraction
+> error messages. `New-UTCMSnapshot` now returns this rich terminal metadata and warns on
+> partial completion; retrieving or exporting a partial artifact remains supported.
+> Microsoft documents that `resources`, `resourceLocation`, and `errorDetails`
+> [require explicit `$select`](https://learn.microsoft.com/en-us/graph/api/resources/configurationsnapshotjob?view=graph-rest-1.0).
+> Job reads select these fields when needed and request evolvable enum members so
+> `partiallySuccessful` is not hidden behind `unknownFutureValue`.
 
 **Item normalization:** `-IncludeItems` handles both UTCM payload shapes and returns a
 consistent `configurationItems` array where each item has `id`, `displayName`, `type`, and
@@ -431,7 +442,25 @@ Compare-UTCMConfiguration -BaselineSnapshotId <GUID> -CompareSnapshotId <GUID>
 
 # Compare baseline to current tenant state
 Compare-UTCMConfiguration -BaselineSnapshotId <GUID>
+
+# Investigation only: explicitly accept incomplete extraction, with warnings
+Compare-UTCMConfiguration -BaselineSnapshotId <GUID> -CompareSnapshotId <GUID> `
+  -AllowPartialComparison
 ```
+
+Default current-state scope comes from the baseline job's original **`resources` request
+list**, not just the types that returned instances. Previously empty types are included,
+and a successful snapshot with no items can still be compared. If requested-scope metadata
+is unavailable, the command fails instead of silently narrowing coverage; use
+`Get-UTCMTenantDriftReport -CompareResources ...` or `-ComparePreset ...` to choose an
+explicit scope.
+
+Both comparison entry points reject partial snapshots by default, including when comparing
+two existing IDs. The override admits only `partiallySuccessful`, never failed, running,
+or unknown statuses. Its warning is emitted even for an empty diff: missing/added rows can
+be extraction failures, and **no differences observed does not prove absence of drift**.
+`-NoPrompt` does not bypass these checks. Original scope is not proof of extraction success;
+a requested type with no instances is not automatically a failed type.
 
 ---
 
@@ -477,6 +506,15 @@ Export-UTCMSnapshot -Snapshot $snap -Path .\exports -SplitByResourceType
   workload (or a flat paged view), column chooser, and expandable per-item configuration JSON. Empty snapshots
   (for example a `partiallySuccessful` job with no data) show an explicit message.
 
+**Partial exports:** every format (including split JSON and raw artifacts) retains the job's
+status, original requested `resources`, and complete `errorDetails` in
+`Snapshot-{jobId}.diagnostics.json` beside the export. Partial HTML also shows an encoded
+extraction-warning panel. The sidecar is separate from the existing JSON/CSV data shapes
+and is not added to the returned snapshot-file path list. Use `-Overwrite` to replace an
+existing diagnostics file. Treat diagnostics as confidential tenant data too.
+Empty snapshots write valid `[]` JSON and a header-only CSV, rather than empty/invalid data
+files; `-Raw` preserves top-level array shape, including zero or one resource.
+
 ---
 
 ### `New-UTCMDriftReport`
@@ -489,6 +527,7 @@ Generates a self-contained HTML report and a CSV from a diff result.
 | `-SnapshotId` | *(mandatory)* | Baseline snapshot GUID (used in report title) |
 | `-OutputPath` | `.\` | Output directory |
 | `-CurrentItems` | — | Array of current-state `configurationItems` for the full-state section |
+| `-SnapshotDiagnostics` | — | Baseline and comparison job metadata; supplied automatically by the end-to-end workflow |
 | `-Open` | — | Open the HTML report in the default browser |
 
 **What the HTML report contains:**
@@ -496,7 +535,8 @@ Generates a self-contained HTML report and a CSV from a diff result.
    a workload and resource-type distribution, and a searchable, filterable, sortable, paged table.
    A resource that was **modified** is reported **once as Changed**, with a **Property / Baseline / Current**
    comparison; the full JSON is a secondary *Raw JSON* detail. If nothing drifted, the report says
-   **"No drift detected"**.
+   **"No drift detected"** for a complete comparison. Known-incomplete comparisons instead
+   show a prominent warning and **"No differences observed in the extracted data"**.
 2. **Full current state** — every item from the current snapshot (shown when `-CurrentItems` is supplied).
 
 > **Counts:** `Compare-UTCMConfiguration` represents a modified resource as two rows (baseline and current).
@@ -515,6 +555,12 @@ New-UTCMDriftReport -Diff $diff -SnapshotId <GUID> -OutputPath .\Reports `
 ```
 
 Returns a `PSCustomObject` with `HtmlPath`, `CsvPath`, `Added`, `Missing`, `Changed`, and `Opened` properties.
+Available job metadata is also written to `UTCM-Drift-Report-{baselineId}.diagnostics.json`.
+The end-to-end workflow supplies both jobs; when manually rendering an explicitly allowed
+partial diff, pass both detailed jobs with `-SnapshotDiagnostics @($baseline, $current)`.
+This preserves both statuses, original scopes, and service errors without changing CSV
+columns or the return object. The sidecar is refreshed with each report so an older partial
+run cannot leave stale diagnostics beside a newer complete report.
 
 ---
 
@@ -564,7 +610,14 @@ End-to-end drift pipeline: select baseline -> compare to current -> generate rep
 
 When `-CompareToCurrent` is used, the function creates a fresh "current state" snapshot
 and compares it to the baseline. By default it uses the **same resource types** as the
-baseline. You can override this with `-ComparePreset` or `-CompareResources`.
+baseline's original request, **including types with no captured instances**. You can override
+this with `-ComparePreset` or `-CompareResources`; explicit resources take precedence.
+If original scope is unavailable, supply one of these selectors explicitly.
+
+Both baseline and current extraction must succeed. A partial baseline prevents the second
+job from being created. `-AllowPartialComparison` permits investigative comparisons only:
+warnings, an incomplete-report banner, and diagnostics remain visible even when no
+differences are found. Downloading/exporting the baseline alone does not require this override.
 
 In interactive mode (no `-NoPrompt`), a numbered menu of available presets is shown so
 you can pick a different resource scope for the comparison.
@@ -575,6 +628,7 @@ you can pick a different resource scope for the comparison.
 | `-CompareToCurrent` | — | Create a current-state snapshot and compare |
 | `-ComparePreset` | — | Named preset for the comparison snapshot |
 | `-CompareResources` | — | Explicit resource identifiers for comparison |
+| `-AllowPartialComparison` | off | Investigation-only override for partial extraction; results remain conspicuously incomplete |
 | `-Dashboard` | — | Generate HTML drift report |
 | `-ExportJson` | — | Export baseline snapshot to JSON |
 | `-OutputPath` | `.\` | Output directory |
@@ -608,6 +662,10 @@ Get-UTCMTenantDriftReport `
   -OutputPath .\Reports `
   -NoPrompt
 ```
+
+For an intentionally partial investigation, add `-AllowPartialComparison` to the command.
+Do not use the resulting counts, missing rows, or empty diff as definitive unattended
+drift conclusions. Review the diagnostics and obtain successful snapshots before doing so.
 
 ---
 

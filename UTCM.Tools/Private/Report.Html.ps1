@@ -354,6 +354,25 @@ function Format-UTCMTableHead {
     return "<thead><tr>$($th -join '')</tr></thead>"
 }
 
+function Format-UTCMSnapshotDiagnosticNotice {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()] $Diagnostic)
+
+    $incomplete = @($Diagnostic | Where-Object { $null -ne $_ -and $_.status -ne 'succeeded' })
+    if ($incomplete.Count -eq 0) { return '' }
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.Append('<aside class="empty card k-missing" role="alert"><h2>Incomplete extraction - conclusions are provisional</h2><p>Missing or added rows may reflect extraction failures. An empty comparison cannot establish absence of drift. Do not use these results as unattended drift conclusions.</p><ul>')
+    foreach ($entry in $incomplete) {
+        $id = ConvertTo-UTCMHtmlText $entry.id
+        $status = ConvertTo-UTCMHtmlText $entry.status
+        $summary = ConvertTo-UTCMHtmlText $entry.errorSummary
+        [void]$sb.Append("<li>Snapshot <code>$id</code>: <strong>$status</strong>. $summary</li>")
+    }
+    [void]$sb.Append('</ul></aside>')
+    $sb.ToString()
+}
+
 function Format-UTCMDriftReportHtml {
     # Builds the complete drift report document.
     [CmdletBinding()]
@@ -365,6 +384,7 @@ function Format-UTCMDriftReportHtml {
         [AllowNull()] $BaselineCreated,
         [AllowNull()][string] $ResourceLocation,
         [AllowNull()] $CurrentItems,
+        [AllowNull()] $SnapshotDiagnostics,
         [Parameter(Mandatory)][string] $GeneratedUtc
     )
 
@@ -374,6 +394,13 @@ function Format-UTCMDriftReportHtml {
     $missing = @($recs | Where-Object Status -eq 'Missing').Count
     $changed = @($recs | Where-Object Status -eq 'Changed').Count
     $items = @($CurrentItems | Where-Object { $null -ne $_ } | ForEach-Object { ConvertTo-UTCMReportItem $_ })
+    $incomplete = @($SnapshotDiagnostics | Where-Object { $null -ne $_ -and $_.status -ne 'succeeded' }).Count -gt 0
+    $title = if ($incomplete) { 'UTCM Drift Report - Incomplete Comparison' } else { 'UTCM Drift Report' }
+    $currentStateNote = if ($incomplete) {
+        'Configuration returned by the current snapshot; extraction may be incomplete. See the warnings above.'
+    } else {
+        'Complete configuration captured at the time of comparison.'
+    }
 
     $link = ''
     $safe = ConvertTo-UTCMSafeUrl $ResourceLocation
@@ -385,12 +412,13 @@ function Format-UTCMDriftReportHtml {
     [void]$sb.Append(@"
 <div class="wrap">
 <header>
-<h1 id="drift-summary">UTCM Drift Report</h1>
+<h1 id="drift-summary">$title</h1>
 <p class="meta">Baseline snapshot: <strong>$($enc::HtmlEncode($BaselineName))</strong> (<code>$($enc::HtmlEncode($SnapshotId))</code>) &middot; Baseline created: $($enc::HtmlEncode((ConvertTo-UTCMUtcDisplay $BaselineCreated))) &middot; Generated: $($enc::HtmlEncode($GeneratedUtc))$link</p>
 <p class="note">This report contains tenant configuration data. Handle it as confidential.</p>
 <nav class="topnav" aria-label="Report sections">$nav</nav>
 </header>
 <main id="main">
+$(Format-UTCMSnapshotDiagnosticNotice -Diagnostic $SnapshotDiagnostics)
 $(Format-UTCMSummaryCard -Cards @(
     @{ Label = 'Resources with drift'; Value = $recs.Count; Class = ''; Icon = '' },
     @{ Label = 'Changed'; Value = $changed; Class = 'k-changed'; Icon = '&ne;' },
@@ -400,7 +428,11 @@ $(Format-UTCMSummaryCard -Cards @(
 "@)
 
     if ($recs.Count -eq 0) {
-        [void]$sb.Append('<p class="empty ok" role="status"><strong>No drift detected.</strong> The current configuration matches the baseline.</p>')
+        if ($incomplete) {
+            [void]$sb.Append('<p class="empty" role="status"><strong>No differences observed in the extracted data.</strong> This incomplete comparison cannot establish absence of drift.</p>')
+        } else {
+            [void]$sb.Append('<p class="empty ok" role="status"><strong>No drift detected.</strong> The current configuration matches the baseline.</p>')
+        }
     } else {
         [void]$sb.Append((Format-UTCMDistribution -Title 'Drift by workload' -Rows (Get-UTCMCountBy -Items $recs -Property Workload)))
         [void]$sb.Append((Format-UTCMDistribution -Title 'Drift by resource type' -Rows (Get-UTCMCountBy -Items $recs -Property Type) -Top 10))
@@ -453,7 +485,7 @@ $toolbar
         [void]$sb.Append(@"
 <section class="scope" id="current-state" data-scope="current" data-dlname="UTCM-Current-State-$($enc::HtmlEncode($SnapshotId))" data-download="dom" data-sort="name" data-presorted="1" aria-labelledby="current-h">
 <h2 id="current-h">Full current state ($($items.Count) items)</h2>
-<p class="note">Complete configuration captured at the time of comparison.</p>
+<p class="note">$currentStateNote</p>
 $toolbar
 <p class="count" data-count></p>
 <p class="empty" data-empty hidden>No resources match the current search and filters.</p>
@@ -463,7 +495,7 @@ $toolbar
     }
 
     [void]$sb.Append('</main></div>')
-    return (Format-UTCMReportDocument -Title 'UTCM Drift Report' -Body $sb.ToString() -ReportType 'drift')
+    return (Format-UTCMReportDocument -Title $title -Body $sb.ToString() -ReportType 'drift')
 }
 
 function Format-UTCMSnapshotReportHtml {
@@ -475,6 +507,7 @@ function Format-UTCMSnapshotReportHtml {
         [Parameter(Mandatory)][string] $SnapshotId,
         [AllowNull()] $Created,
         [AllowNull()][string] $Status,
+        [AllowNull()] $SnapshotDiagnostic,
         [Parameter(Mandatory)][string] $GeneratedUtc
     )
 
@@ -482,6 +515,9 @@ function Format-UTCMSnapshotReportHtml {
     $list = @($Items | Where-Object { $null -ne $_ } | ForEach-Object { ConvertTo-UTCMReportItem $_ })
     $byWorkload = @(Get-UTCMCountBy -Items $list -Property Workload)
     $types = @($list | ForEach-Object Type | Sort-Object -Unique)
+    if ($Status -eq 'partiallySuccessful' -and $null -eq $SnapshotDiagnostic) {
+        $SnapshotDiagnostic = Get-UTCMSnapshotDiagnostic -Snapshot @{ id = $SnapshotId; status = $Status }
+    }
 
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append(@"
@@ -492,6 +528,7 @@ function Format-UTCMSnapshotReportHtml {
 <p class="note">This report contains tenant configuration data. Handle it as confidential.</p>
 </header>
 <main id="main">
+$(Format-UTCMSnapshotDiagnosticNotice -Diagnostic $SnapshotDiagnostic)
 $(Format-UTCMSummaryCard -Cards @(
     @{ Label = 'Items'; Value = $list.Count; Class = '' },
     @{ Label = 'Workloads'; Value = $byWorkload.Count; Class = '' },

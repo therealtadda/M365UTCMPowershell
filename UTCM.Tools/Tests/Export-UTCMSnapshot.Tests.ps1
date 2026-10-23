@@ -64,7 +64,7 @@ Describe "Export-UTCMSnapshot" {
         Mock -ModuleName UTCM.Tools Invoke-MgGraphRequest {
             '{"configurationItems":[]}' | Out-File -LiteralPath $OutputFilePath -Encoding UTF8
         }
-        $partial = [pscustomobject]@{ id = 'cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee'; displayName = 'Partial'; status = 'partiallySuccessful'; resourceLocation = 'https://graph.microsoft.com/v1.0/x' }
+        $partial = [pscustomobject]@{ id = 'cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee'; displayName = 'Partial'; status = 'partiallySuccessful'; resourceLocation = 'https://graph.microsoft.com/v1.0/x'; resources = @('microsoft.entra.securitydefaults'); errorDetails = @('Synthetic extraction failure') }
         $paths = @(Export-UTCMSnapshot -Snapshot $partial -Path $TestDrive -Format HTML -Overwrite)
         $html = Get-Content -LiteralPath $paths[0] -Raw
         $html | Should -Match 'This snapshot contains no items'

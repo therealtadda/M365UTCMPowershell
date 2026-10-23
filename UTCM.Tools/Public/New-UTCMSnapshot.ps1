@@ -7,6 +7,8 @@ function New-UTCMSnapshot {
         Submits a createSnapshot request to the UTCM API and polls until the job reaches
         a terminal status (succeeded, failed, or partiallySuccessful).
         Resources can be specified explicitly or via a JSON-backed preset.
+        Terminal metadata explicitly includes resources, resourceLocation and errorDetails.
+        Partial completion emits a warning but remains available for retrieval and export.
 
         DisplayName is auto-sanitized to meet the API constraint (letters, numbers, and spaces only).
 
@@ -32,7 +34,7 @@ function New-UTCMSnapshot {
         Snapshot description. Default: "Baseline snapshot".
 
     .OUTPUTS
-        The completed snapshot job object (id, status, resourceLocation).
+        The completed snapshot job object, including id, status, resources, resourceLocation and errorDetails.
 
     .EXAMPLE
         New-UTCMSnapshot
@@ -101,8 +103,7 @@ function New-UTCMSnapshot {
     do {
         Start-Sleep -Seconds $PollingIntervalSeconds
 
-        # Job read endpoint: GET /v1.0/admin/configurationManagement/configurationSnapshotJobs/{id}
-        $status = Invoke-GraphRequestWithRetry -Method 'GET' -Uri "$($script:SnapshotJobsUri)/$($job.id)"
+        $status = Get-UTCMSnapshot -SnapshotId $job.id -IncludeDetails
 
         if (Get-Command -Name Write-Log -ErrorAction SilentlyContinue) {
             Write-Log -Message "Snapshot status: $($status.status)" -Color Gray
@@ -111,33 +112,21 @@ function New-UTCMSnapshot {
     while ($status.status -in @('notStarted','running'))
 
     # --- Terminal evaluation ---
-    if ($status.status -notin @('succeeded','partiallySuccessful')) {
-        # Extract error details — Invoke-MgGraphRequest returns a hashtable,
-        # so try both hashtable key access and PSObject property access.
-        $errorInfo = @()
-        try {
-            $ed = $null
-            if ($status -is [System.Collections.IDictionary] -and $status.ContainsKey('errorDetails')) {
-                $ed = $status['errorDetails']
-            } elseif ($status.PSObject.Properties.Name -contains 'errorDetails') {
-                $ed = $status.errorDetails
-            }
-            if ($ed -and $ed.Count -gt 0) {
-                $errorInfo += "errorDetails: $($ed -join '; ')"
-            }
-        } catch { <# ignore #> }
-
-        # Dump the full job status so we can diagnose server-side failures
-        $statusDump = try { $status | ConvertTo-Json -Depth 5 -Compress } catch { $status.ToString() }
-        Write-Warning "Full snapshot job response: $statusDump"
-
-        throw ("Snapshot job failed with status '{0}'. {1}" -f $status.status, ($errorInfo -join ' | '))
+    $diagnostic = Get-UTCMSnapshotDiagnostic -Snapshot $status
+    if ($diagnostic.status -notin @('succeeded','partiallySuccessful')) {
+        throw ("Snapshot job '{0}' failed with status '{1}'. {2}" -f
+            $diagnostic.id, $diagnostic.status, $diagnostic.errorSummary)
+    }
+    if ($diagnostic.status -eq 'partiallySuccessful') {
+        Write-Warning (("Snapshot job '{0}' completed partiallySuccessful; extraction is incomplete. {1} " +
+            "Keep the job metadata or export the snapshot to retain diagnostics. Do not treat missing data as drift.") -f
+            $diagnostic.id, $diagnostic.errorSummary)
     }
 
     if (Get-Command -Name Write-Log -ErrorAction SilentlyContinue) {
-        Write-Log -Message ("Snapshot job '{0}' completed with status '{1}'." -f $status.id, $status.status) -Color Green
+        $color = if ($diagnostic.status -eq 'succeeded') { 'Green' } else { 'Yellow' }
+        Write-Log -Message ("Snapshot job '{0}' completed with status '{1}'." -f $status.id, $status.status) -Color $color
     }
 
-    # Return the final job (contains id, status, and resourceLocation)
     return $status
 }

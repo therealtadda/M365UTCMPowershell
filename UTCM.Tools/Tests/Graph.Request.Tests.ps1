@@ -201,7 +201,7 @@ Describe 'Graph retries and downloads' {
             { Get-UTCMCurrentStateSnapshot -Resources @('microsoft.entra.securitydefaults') } |
                 Should -Throw '*External hosts are not supported*'
         }
-        Should -Invoke -ModuleName UTCM.Tools Invoke-MgGraphRequest -Times 2 -Exactly
+        Should -Invoke -ModuleName UTCM.Tools Invoke-MgGraphRequest -Times 3 -Exactly
         Should -Invoke -ModuleName UTCM.Tools Invoke-MgGraphRequest -Times 0 -Exactly -ParameterFilter { $OutputFilePath }
     }
 }

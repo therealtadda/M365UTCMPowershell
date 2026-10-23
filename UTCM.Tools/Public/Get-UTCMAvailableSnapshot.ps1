@@ -140,7 +140,7 @@ function Get-UTCMAvailableSnapshot {
     # -------------------------------
     $all = @()
     do {
-        $page = Invoke-GraphRequestWithRetry -Method 'GET' -Uri $uri
+        $page = Invoke-GraphRequestWithRetry -Method 'GET' -Uri $uri -Headers @{ Prefer = 'include-unknown-enum-members' }
         if ($page.value) { $all += $page.value }
         $uri = $null
         if ($page -is [System.Collections.IDictionary]) {

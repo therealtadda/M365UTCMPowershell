@@ -17,6 +17,9 @@ function New-UTCMDriftReport {
         (Id, DisplayName, Type, DriftType, NormalizedData). An empty -Diff produces a "No drift detected"
         report and a header-only CSV. Formula-like CSV text cells are prefixed with an apostrophe
         for spreadsheet safety; JSON and HTML values are not modified.
+        Available snapshot metadata is retained in a companion diagnostics JSON file.
+        Partial metadata produces a prominent incomplete-comparison warning instead of a
+        clean no-drift conclusion.
 
     .PARAMETER Diff
         The diff array from Compare-UTCMConfiguration (may be empty).
@@ -33,6 +36,11 @@ function New-UTCMDriftReport {
 
     .PARAMETER Open
         Open the HTML report in the default browser after generation.
+
+    .PARAMETER SnapshotDiagnostics
+        Baseline and comparison job metadata, including status, resources and errorDetails.
+        Get-UTCMTenantDriftReport supplies both automatically. For manually generated partial
+        reports, supply both jobs so the warning and diagnostics cover both sides.
 
     .OUTPUTS
         PSCustomObject with HtmlPath, CsvPath, Added, Missing, Changed, Opened.
@@ -53,6 +61,8 @@ function New-UTCMDriftReport {
 
         # Full configuration items from the current-state snapshot
         $CurrentItems,
+
+        [object[]] $SnapshotDiagnostics,
 
         # Open the generated HTML report in the default browser
         [switch] $Open
@@ -87,6 +97,22 @@ function New-UTCMDriftReport {
     $baselineName     = [string](Get-UTCMObjectField $baseline @('displayName'))
     $baselineCreated  = Get-UTCMObjectField $baseline @('createdDateTime')
     $resourceLocation = [string](Get-UTCMObjectField $baseline @('resourceLocation'))
+    $diagnostics = @($SnapshotDiagnostics | Where-Object { $null -ne $_ } |
+        ForEach-Object { Get-UTCMSnapshotDiagnostic -Snapshot $_ })
+    if ($baseline) {
+        $baselineDiagnostic = Get-UTCMSnapshotDiagnostic -Snapshot $baseline
+        if ($SnapshotId -notin @($diagnostics | ForEach-Object id)) {
+            $diagnostics = @($baselineDiagnostic) + $diagnostics
+        } elseif ($baselineDiagnostic.status -ne 'succeeded') {
+            $diagnostics = @($baselineDiagnostic) + @($diagnostics | Where-Object id -ne $SnapshotId)
+        }
+    }
+    $diagnosticsPath = Join-Path -Path $outDir -ChildPath ("UTCM-Drift-Report-{0}.diagnostics.json" -f $SnapshotId)
+    Export-UTCMSnapshotDiagnostic -Diagnostic $diagnostics -Path $diagnosticsPath -Overwrite | Out-Null
+    $incomplete = @($diagnostics | Where-Object { $_.status -ne 'succeeded' })
+    if ($incomplete.Count -gt 0) {
+        Write-Warning "INCOMPLETE COMPARISON: report differences are provisional, not reliable unattended drift conclusions. Diagnostics: $diagnosticsPath"
+    }
 
     # One record per resource; a '<=' + '=>' pair becomes Changed
     $diffRows = @($Diff | Where-Object { $null -ne $_ })
@@ -97,6 +123,7 @@ function New-UTCMDriftReport {
 
     $html = Format-UTCMDriftReportHtml -Records $records -Diff $diffRows -SnapshotId $SnapshotId `
         -BaselineName $baselineName -BaselineCreated $baselineCreated -ResourceLocation $resourceLocation `
+        -SnapshotDiagnostics $diagnostics `
         -CurrentItems $CurrentItems -GeneratedUtc ((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss') + ' UTC')
 
     $fullHtmlPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($htmlPath)
